@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-black text-jarvis-cyan overflow-hidden select-none font-rajdhani;
+    background-image: 
+      radial-gradient(circle at 50% 50%, rgba(0, 255, 209, 0.15) 0%, rgba(0,0,0,1) 60%),
+      linear-gradient(rgba(0, 255, 209, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 255, 209, 0.03) 1px, transparent 1px);
+    background-size: 100% 100%, 30px 30px, 30px 30px;
+    background-position: center center, center center, center center;
+  }
+
+  /* Futuristic Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-left: 1px solid rgba(0, 255, 209, 0.1);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 255, 209, 0.3);
+    border-radius: 10px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 209, 0.6);
+    box-shadow: 0 0 10px rgba(0, 255, 209, 0.5);
+  }
+}
+
+.scanlines {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0),
+    rgba(255,255,255,0) 50%,
+    rgba(0,0,0,0.2) 50%,
+    rgba(0,0,0,0.2)
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.3;
+}
+
+.hud-panel {
+  @apply bg-black/60 border border-jarvis-cyan/40 backdrop-blur-xl rounded-md;
+  box-shadow: inset 0 0 30px rgba(0, 255, 209, 0.05), 0 0 20px rgba(0, 255, 209, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Corner bracket decorations */
+.hud-panel::before, .hud-panel::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #00FFD1;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.hud-panel::before {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.hud-panel::after {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+.hud-panel-inner::before, .hud-panel-inner::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #00FFD1;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.hud-panel-inner::before {
+  top: -2px;
+  right: -2px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.hud-panel-inner::after {
+  bottom: -2px;
+  left: -2px;
+  border-right: none;
+  border-top: none;
+}
+
+/* Voice-reactive avatar pulse animation */
+@keyframes pulse-ring {
+  0%   { transform: scale(1); box-shadow: 0 0 15px rgba(0,255,209,0.5); }
+  50%  { transform: scale(1.1); box-shadow: 0 0 30px rgba(0,255,209,0.8), inset 0 0 20px rgba(0,255,209,0.5); }
+  100% { transform: scale(1); box-shadow: 0 0 15px rgba(0,255,209,0.5); }
+}
+
+@keyframes radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.radar-sweep-bg {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 70%, rgba(0, 255, 209, 0.4) 100%);
+  animation: radar-sweep 4s linear infinite;
+}
+
+@keyframes log-fade-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.log-entry-anim {
+  animation: log-fade-in 0.3s ease-out forwards;
+}

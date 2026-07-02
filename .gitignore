@@ -1,0 +1,41 @@
+# Environment & secrets
+.env
+*.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+backend/venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# JARVIS sensitive data
+backend/memory.json
+backend/memory.enc
+backend/memory.key
+backend/schedule.txt
+backend/face_data/
+backend/built_sites/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
