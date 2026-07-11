@@ -22,7 +22,19 @@ from agents.chat_agent import chat_response, clear_session, predict_user_needs
 from agents.live_agent import handle_live_query
 from agents.builder_agent import build_website, is_build_request, extract_build_prompt
 from agents.heartbeat_agent import measure_heart_rate
+from agents.security_agent import (
+    is_intrusion_attempt,
+    is_shutdown_command,
+    is_close_all_tabs_command,
+    lock_screen,
+    lock_screen_with_photo,
+    shutdown_system,
+    close_all_chrome_tabs,
+    get_intruder_log,
+    INTRUDER_LOG_DIR,
+)
 from voice import speak_text, interrupt, set_voice
+from typing import List
 
 # Safe auto-installer for pypdf (required for resume/PDF uploads)
 try:
@@ -86,6 +98,53 @@ async def face_auth():
         return result
     except Exception as e:
         return {"verified": False, "error": str(e)}
+
+@app.post("/api/voice-register")
+async def voice_register(files: List[UploadFile] = File(...)):
+    """Registers Raj's voice profile using 3 voice WAV samples."""
+    try:
+        from agents.voice_auth import register_voice_profile
+        samples = []
+        for file in files:
+            content = await file.read()
+            samples.append(content)
+        success = register_voice_profile(samples)
+        if success:
+            return {"success": True, "message": "Voice registered successfully."}
+        else:
+            return {"success": False, "error": "Could not register voice profile. Make sure files are valid WAVs."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/voice-verify")
+async def voice_verify(file: UploadFile = File(...)):
+    """Verifies if the uploaded voice WAV sample belongs to Raj."""
+    try:
+        from agents.voice_auth import verify_speaker
+        content = await file.read()
+        is_raj, score = verify_speaker(content)
+        return {"verified": is_raj, "score": score}
+    except Exception as e:
+        return {"verified": False, "error": str(e)}
+
+@app.post("/api/face-register")
+async def face_register():
+    """Trigger LBPH face registration from webcam (30 samples). Run once to train Raj's face model."""
+    try:
+        from face_auth import register_face_from_webcam
+        result = await asyncio.to_thread(register_face_from_webcam, 30)
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/intruder-log")
+async def intruder_log():
+    """Returns list of intruder photo events for the BiometricsDashboard."""
+    try:
+        entries = get_intruder_log()
+        return {"success": True, "events": entries, "count": len(entries)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "events": []}
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -315,6 +374,10 @@ def _pollinations_url(prompt: str) -> str:
 
 SOCKET_SECRET = os.getenv("SOCKET_SECRET", "jarvis-local-secret")
 
+# Per-session dismissed state: {sid: True/False}
+# When True, Jarvis quietly ignores all commands until re-engaged.
+_dismissed_sessions: dict = {}
+
 # Rate limiting — max 1 command per 2 seconds per session
 _rate_limit: dict = {}   # {sid: last_command_timestamp}
 RATE_LIMIT_SECONDS = 2
@@ -357,18 +420,24 @@ async def connect(sid, environ, auth=None):
     print(f"Frontend connected: {sid}")
     ist = _get_ist_time()
     hour = ist.hour
-    if   hour < 12: greeting = "Good morning, Raj."
-    elif hour < 16: greeting = "Good afternoon, Raj."
-    elif hour < 20: greeting = "Good evening, Raj."
-    else:           greeting = "Good night, Raj."
+    if   hour < 12: greeting = "Good morning, Sir."
+    elif hour < 16: greeting = "Good afternoon, Sir."
+    elif hour < 20: greeting = "Good evening, Sir."
+    else:           greeting = "Good night, Sir."
 
     city, region, country = _get_location()
     time_str = ist.strftime("%I:%M %p")
 
-    full_message = f"Hello I am JARVIS continued. It is {time_str} and you are in {city}, {country}. How can I help you?"
-    await sio.emit('system_log', {'time': ist.strftime("%H:%M:%S"), 'type': 'jarvis', 'message': full_message}, room=sid)
+    # ── Greeting + Consent Gate ──────────────────────────────────────────────
+    # Jarvis greets and ASKS before doing anything. If declined, goes to DISMISSED.
+    _dismissed_sessions[sid] = False   # default: active
+    consent_message = (
+        f"{greeting} JARVIS is online. It is {time_str} and you are in {city}, {country}. "
+        f"Do you require my assistance today, Sir?"
+    )
+    await sio.emit('system_log', {'time': ist.strftime("%H:%M:%S"), 'type': 'jarvis', 'message': consent_message}, room=sid)
     await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
-    await asyncio.to_thread(speak_text, full_message)
+    await asyncio.to_thread(speak_text, consent_message)
     await sio.emit('activity_state', {'state': 'LISTENING'}, room=sid)
 
 @sio.event
@@ -376,10 +445,86 @@ async def disconnect(sid):
     print(f"Frontend disconnected: {sid}")
     clear_session(sid)
     _rate_limit.pop(sid, None)
+    _dismissed_sessions.pop(sid, None)
 
 @sio.event
 async def process_command(sid, data):
     raw_command = data.get('command', '') if isinstance(data, dict) else ''
+    audio_b64 = data.get('audio', '') if isinstance(data, dict) else ''
+    now = _get_ist_time().strftime("%H:%M:%S")
+
+    # ── SPEAKER BIOMETRIC IDENTIFICATION ────────────────────────────────────
+    # If audio bytes are sent with command, verify the speaker's voiceprint.
+    # If it is NOT Raj, lock screen instantly for security breach.
+    if audio_b64:
+        import base64
+        if "," in audio_b64:
+            audio_b64 = audio_b64.split(",")[1]
+        try:
+            audio_bytes = base64.b64decode(audio_b64)
+            from agents.voice_auth import verify_speaker
+            is_raj, score = verify_speaker(audio_bytes)
+            
+            if not is_raj:
+                lock_msg = f"⚠️ Intruder voice signature detected (Similarity: {score:.2f}). Locking system."
+                await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': lock_msg}, room=sid)
+                await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+                await asyncio.to_thread(speak_text, "Security alert. Unauthorized voice detected. Locking the screen now.")
+                # Capture intruder photo THEN lock screen
+                lock_result, photo_path = await asyncio.to_thread(lock_screen_with_photo)
+                photo_note = f" 📸 Photo saved at {photo_path}" if photo_path else ""
+                await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': lock_result + photo_note}, room=sid)
+                await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+                # Notify frontend to refresh intruder log
+                await sio.emit('intruder_alert', {'photo_path': photo_path, 'score': score}, room=sid)
+                return
+            else:
+                print(f"[VOICE AUTH] Raj verified successfully (Similarity: {score:.2f})")
+        except Exception as e:
+            print(f"[VOICE AUTH ERROR]: Verification failed, ignoring. {e}")
+
+    # ── SECURITY FAST-PATH ─────────────────────────────────────────────────
+    # Checked BEFORE sanitization, rate-limiting, or any routing.
+    if is_intrusion_attempt(raw_command):
+        if audio_b64:
+            # If we reached here, the voice was verified as Raj's in the block above
+            success_msg = "🔓 Welcome back, Sir. Raj Lab access granted."
+            await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': success_msg}, room=sid)
+            await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+            await asyncio.to_thread(speak_text, "Access granted, Sir. Welcome to the Raj Lab.")
+            await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+            return
+        else:
+            # No voice biometrics provided (e.g. typed or text API call)
+            lock_msg = "⚠️ Unverified access attempt. Locking the screen."
+            await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': lock_msg}, room=sid)
+            await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+            await asyncio.to_thread(speak_text, "Security alert. Unverified access command. Locking the screen now.")
+            lock_screen()
+            await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+            return
+
+    # ── SHUTDOWN FAST-PATH ─────────────────────────────────────────────────
+    if is_shutdown_command(raw_command):
+        shutdown_msg = "Understood, Sir. Initiating system shutdown. Goodbye."
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': shutdown_msg}, room=sid)
+        await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+        await asyncio.to_thread(speak_text, "Understood, Sir. Shutting down now. Goodbye.")
+        shutdown_system()
+        return
+
+    # ── CLOSE ALL TABS FAST-PATH ────────────────────────────────────────────
+    if is_close_all_tabs_command(raw_command):
+        tabs_msg = "Closing all Chrome tabs now, Sir."
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': tabs_msg}, room=sid)
+        await sio.emit('activity_state', {'state': 'PROCESSING'}, room=sid)
+        result = await asyncio.to_thread(close_all_chrome_tabs)
+        await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': result}, room=sid)
+        await asyncio.to_thread(speak_text, result)
+        await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+        return
+
     is_safe, command = _sanitize_command(raw_command)
     if not is_safe:
         await sio.emit('system_log', {'time': _get_ist_time().strftime("%H:%M:%S"), 'type': 'jarvis', 'message': 'Raj, that command was blocked for security reasons.'}, room=sid)
@@ -388,8 +533,45 @@ async def process_command(sid, data):
     # Interrupt any currently playing speech immediately
     interrupt()
 
-    now = _get_ist_time().strftime("%H:%M:%S")
     await sio.emit('system_log', {'time': now, 'type': 'user', 'message': command}, room=sid)
+
+    # ── GREETING CONSENT GATE ──────────────────────────────────────────────
+    # If Jarvis is in DISMISSED state, check if user wants to re-engage.
+    cmd_lower = command.lower().strip()
+    dismissed = _dismissed_sessions.get(sid, False)
+
+    # Phrases that DISMISS Jarvis
+    DISMISS_PHRASES = ["no", "not now", "no thanks", "don't need you", "go away",
+                       "dismiss", "no help", "i'm fine", "im fine", "no need",
+                       "not today", "exit", "disable", "stop", "not required"]
+    # Phrases that WAKE Jarvis back up
+    WAKE_PHRASES    = ["yes", "help", "yeah", "sure", "please", "i need you", "activate",
+                       "i need help", "wake up", "wake", "jarvis", "okay", "ok"]
+
+    if not dismissed:
+        # Check if the user just answered the consent gate question
+        if any(p == cmd_lower or cmd_lower.startswith(p) for p in DISMISS_PHRASES):
+            _dismissed_sessions[sid] = True
+            dismiss_msg = "Understood, Sir. I'll stand by quietly. Say 'Jarvis' or 'I need help' to wake me anytime."
+            await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': dismiss_msg}, room=sid)
+            await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+            await asyncio.to_thread(speak_text, dismiss_msg)
+            await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+            return
+    else:
+        # In dismissed mode — only respond to wake phrases
+        if any(p in cmd_lower for p in WAKE_PHRASES):
+            _dismissed_sessions[sid] = False
+            wake_msg = "JARVIS is back online, Sir. How can I help you?"
+            await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': wake_msg}, room=sid)
+            await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+            await asyncio.to_thread(speak_text, wake_msg)
+            await sio.emit('activity_state', {'state': 'LISTENING'}, room=sid)
+            return
+        else:
+            # Silently ignore — Jarvis is dismissed
+            return
+
     await sio.emit('activity_state', {'state': 'PROCESSING'}, room=sid)
 
     # --- Image check ---

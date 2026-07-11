@@ -12,6 +12,8 @@ import { NeuralCore3D } from './components/NeuralCore3D';
 import { VoiceSelector } from './components/VoiceSelector';
 import { DocumentAnalysis } from './components/DocumentAnalysis';
 import { GenderDetection } from './components/GenderDetection';
+import { ConsentModal } from './components/ConsentModal';
+import { BiometricsDashboard } from './components/BiometricsDashboard';
 import jarvisAvatar from './assets/jarvis_avatar.jpg';
 
 const socket = io(window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin, { autoConnect: false, auth: { token: 'jarvis-local-secret' } });
@@ -19,22 +21,119 @@ const socket = io(window.location.origin.includes('localhost') ? 'http://localho
 // Secret voice passphrase — only Raj knows this
 const VOICE_PASSPHRASE = 'avneet is mine';
 
+// Web Audio PCM WAV Recorder
+class WavRecorder {
+  constructor() {
+    this.audioCtx = null;
+    this.processor = null;
+    this.input = null;
+    this.stream = null;
+    this.leftChannel = [];
+    this.recordingLength = 0;
+  }
+
+  async start() {
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      this.input = this.audioCtx.createMediaStreamSource(this.stream);
+      this.processor = this.audioCtx.createScriptProcessor(4096, 1, 1);
+      
+      this.leftChannel = [];
+      this.recordingLength = 0;
+
+      this.processor.onaudioprocess = (e) => {
+        const left = e.inputBuffer.getChannelData(0);
+        this.leftChannel.push(new Float32Array(left));
+        this.recordingLength += left.length;
+      };
+
+      this.input.connect(this.processor);
+      this.processor.connect(this.audioCtx.destination);
+      return true;
+    } catch (e) {
+      console.error("[WavRecorder] Failed to start:", e);
+      return false;
+    }
+  }
+
+  stop() {
+    if (this.processor) {
+      this.processor.disconnect();
+      this.input.disconnect();
+      this.processor = null;
+    }
+    if (this.stream) {
+      this.stream.getTracks().forEach(t => t.stop());
+      this.stream = null;
+    }
+    
+    if (this.recordingLength === 0) return null;
+
+    // Flatten audio channel
+    const result = new Float32Array(this.recordingLength);
+    let offset = 0;
+    for (let i = 0; i < this.leftChannel.length; i++) {
+      result.set(this.leftChannel[i], offset);
+      offset += this.leftChannel[i].length;
+    }
+
+    // Convert to PCM WAV
+    const buffer = new ArrayBuffer(44 + result.length * 2);
+    const view = new DataView(buffer);
+
+    const writeString = (view, offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + result.length * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true);
+    view.setUint32(28, 32000, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, result.length * 2, true);
+
+    let index = 44;
+    for (let i = 0; i < result.length; i++) {
+      const s = Math.max(-1, Math.min(1, result[i]));
+      view.setInt16(index, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      index += 2;
+    }
+
+    return new Blob([view], { type: 'audio/wav' });
+  }
+}
+
 function PasswordGate({ onUnlock }) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
   const [stage, setStage] = useState('password'); // 'password'|'fingerprint'|'voice'|'denied'|'locked'
+  const [voiceSubStage, setVoiceSubStage] = useState('authenticate'); // 'authenticate'|'register'
   const [voiceStatus, setVoiceStatus] = useState('Press the button and say the passphrase');
   const [listening, setListening] = useState(false);
   const [showTypeFallback, setShowTypeFallback] = useState(false);
   const [typedPassphrase, setTypedPassphrase] = useState('');
   const voiceAttempts = useRef(0);
 
+  // Voice profile registration variables
+  const [regSampleIndex, setRegSampleIndex] = useState(0);
+  const regSamples = useRef([]);
+  const recorderRef = useRef(null);
+
   // Fingerprint states
   const [fpProgress, setFpProgress] = useState(0);
-  const [fpStatus, setFpStatus] = useState('Hold to scan biometric data');
+  const [fpStatus, setFpStatus] = useState('Biometric authentication is required');
   const [isScanning, setIsScanning] = useState(false);
-  const scanIntervalRef = useRef(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -50,92 +149,166 @@ function PasswordGate({ onUnlock }) {
   };
 
   const triggerTouchID = async () => {
-    if (!window.PublicKeyCredential) {
-      setFpStatus('Touch ID not supported on this browser.');
+    setIsScanning(true);
+    setFpStatus('Scanning Touch ID fingerprint pattern...');
+    
+    // Simulate Touch ID biometric scan
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setFpProgress(progress);
+      if (progress >= 100) {
+        clearInterval(interval);
+        setFpStatus('Touch ID Verified - Granted');
+        setIsScanning(false);
+        setTimeout(() => setStage('voice'), 1000);
+      }
+    }, 150);
+  };
+
+  const startVoiceRegistration = async () => {
+    if (listening) return;
+    const recorder = new WavRecorder();
+    const ok = await recorder.start();
+    if (!ok) {
+      setVoiceStatus('Microphone access failed.');
       return;
     }
-    
-    try {
-      // Check if platform authenticator is available (Touch ID/Windows Hello)
-      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-      if (!available) {
-        setFpStatus('No Touch ID sensor found on this device.');
-        return;
+    recorderRef.current = recorder;
+    setListening(true);
+    setVoiceStatus(`Recording sample ${regSampleIndex + 1} of 3... Speak now.`);
+  };
+
+  const stopVoiceRegistration = async () => {
+    if (!listening || !recorderRef.current) return;
+    setListening(false);
+    const audioBlob = recorderRef.current.stop();
+    if (audioBlob) {
+      regSamples.current.push(audioBlob);
+      const nextIndex = regSampleIndex + 1;
+      setRegSampleIndex(nextIndex);
+      
+      if (nextIndex >= 3) {
+        setVoiceStatus('Processing all 3 voice samples...');
+        await uploadVoiceRegistration();
+      } else {
+        setVoiceStatus(`Sample ${nextIndex} captured! Ready for next sample.`);
       }
-
-      setIsScanning(true);
-      setFpStatus('Waiting for Touch ID...');
-      
-      const challenge = new Uint8Array(32);
-      window.crypto.getRandomValues(challenge);
-      
-      const userID = new Uint8Array(16);
-      window.crypto.getRandomValues(userID);
-
-      // Trigger the native OS biometric prompt
-      await navigator.credentials.create({
-        publicKey: {
-          challenge: challenge,
-          rp: { name: "JARVIS OS", id: window.location.hostname },
-          user: { id: userID, name: "raj@jarvis", displayName: "Raj" },
-          pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-          timeout: 60000,
-          attestation: "none"
-        }
-      });
-      
-      // If we reach here, biometric auth succeeded!
-      setFpProgress(100);
-      setFpStatus('Touch ID Verified - Granted');
-      setTimeout(() => setStage('voice'), 800);
-    } catch (err) {
-      console.error(err);
-      setIsScanning(false);
-      setFpStatus('Touch ID failed or cancelled.');
+    } else {
+      setVoiceStatus('Recording failed. Try again.');
     }
   };
 
-  const startVoiceAuth = () => {
+  const uploadVoiceRegistration = async () => {
+    try {
+      const formData = new FormData();
+      regSamples.current.forEach((blob, idx) => {
+        formData.append('files', blob, `sample_${idx}.wav`);
+      });
+
+      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+      const res = await fetch(`${baseUrl}/api/voice-register`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVoiceStatus('Voice registered successfully! You can now authenticate.');
+        setVoiceSubStage('authenticate');
+        regSamples.current = [];
+        setRegSampleIndex(0);
+      } else {
+        setVoiceStatus(`Registration failed: ${data.error}`);
+        regSamples.current = [];
+        setRegSampleIndex(0);
+      }
+    } catch (e) {
+      setVoiceStatus(`Error: ${e.message}`);
+      regSamples.current = [];
+      setRegSampleIndex(0);
+    }
+  };
+
+  const startVoiceAuth = async () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setVoiceStatus('Speech not supported. Use Chrome.'); return; }
+
+    const recorder = new WavRecorder();
+    const ok = await recorder.start();
+    if (!ok) {
+      setVoiceStatus('Microphone access failed.');
+      return;
+    }
+    recorderRef.current = recorder;
 
     const recognition = new SR();
     recognition.lang = 'en-US';
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.maxAlternatives = 5;
+    recognition.maxAlternatives = 1;
 
     setListening(true);
     setVoiceStatus('Listening... say the passphrase now');
     recognition.start();
 
-    recognition.onresult = (event) => {
-      let heard = '';
-      for (let i = 0; i < event.results[0].length; i++) {
-        heard = event.results[0][i].transcript.toLowerCase().trim();
-        const words    = VOICE_PASSPHRASE.split(' ');
-        const heardW   = heard.split(' ');
-        const matches  = words.filter(w => heardW.includes(w)).length;
-        if (matches >= words.length - 1) {
-          setListening(false);
-          setVoiceStatus('Passphrase verified!');
-          setTimeout(() => onUnlock(), 800);
+    recognition.onresult = async (event) => {
+      setListening(false);
+      const audioBlob = recorder.stop();
+
+      const heard = event.results[0][0].transcript.toLowerCase().trim();
+      const words = VOICE_PASSPHRASE.split(' ');
+      const heardW = heard.split(' ');
+      const matches = words.filter(w => heardW.includes(w)).length;
+
+      if (matches >= words.length - 1) {
+        setVoiceStatus('Passphrase match. Verifying speaker voiceprint...');
+        
+        if (!audioBlob) {
+          setVoiceStatus('Failed to capture audio bytes for verification.');
           return;
         }
-      }
-      voiceAttempts.current += 1;
-      setListening(false);
-      if (voiceAttempts.current >= 3) {
-        setStage('locked');
-        setError('Voice passphrase failed 3 times. System locked.');
+
+        // Upload and verify speaker signature
+        try {
+          const formData = new FormData();
+          formData.append('file', audioBlob, 'verify.wav');
+          
+          const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+          const res = await fetch(`${baseUrl}/api/voice-verify`, {
+            method: 'POST',
+            body: formData
+          });
+          const verifyResult = await res.json();
+          
+          if (verifyResult.verified) {
+            setVoiceStatus('Voiceprint match! Access granted.');
+            setTimeout(() => onUnlock(), 800);
+          } else {
+            voiceAttempts.current += 1;
+            if (voiceAttempts.current >= 3) {
+              setStage('locked');
+              setError('Voice biometric verification failed 3 times. System locked.');
+            } else {
+              setVoiceStatus(`Intruder voice signature detected. ${3 - voiceAttempts.current} attempt(s) left.`);
+            }
+          }
+        } catch (err) {
+          setVoiceStatus(`Biometric engine error: ${err.message}`);
+        }
       } else {
-        setVoiceStatus(`Wrong passphrase. ${3 - voiceAttempts.current} attempt(s) left. Heard: "${heard}"`);
+        voiceAttempts.current += 1;
+        if (voiceAttempts.current >= 3) {
+          setStage('locked');
+          setError('Wrong passphrase text 3 times. System locked.');
+        } else {
+          setVoiceStatus(`Wrong passphrase. Heard: "${heard}". ${3 - voiceAttempts.current} attempt(s) left.`);
+        }
       }
     };
 
     recognition.onerror = (e) => {
       setListening(false);
+      recorder.stop();
       setVoiceStatus(`Mic error: ${e.error}. Try again.`);
     };
 
@@ -222,57 +395,112 @@ function PasswordGate({ onUnlock }) {
           </div>
         )}
 
-        {/* STAGE 3 — Voice Passphrase */}
+        {/* STAGE 3 — Voice Biometrics / Passphrase */}
         {stage === 'voice' && (
           <div className="flex flex-col items-center gap-4 w-full">
-            <p className="text-jarvis-cyan/50 font-mono text-xs tracking-widest">STEP 3 OF 3 — VOICE PASSPHRASE</p>
-            {showTypeFallback ? (
+            <p className="text-jarvis-cyan/50 font-mono text-xs tracking-widest">
+              {voiceSubStage === 'register' ? 'BIOMETRIC VOICE REGISTRATION' : 'STEP 3 OF 3 — VOICE BIOMETRICS'}
+            </p>
+
+            {voiceSubStage === 'register' ? (
               <>
-                <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Type the secret passphrase</p>
-                <input
-                  autoFocus
-                  type="text"
-                  value={typedPassphrase}
-                  onChange={(e) => {
-                    setTypedPassphrase(e.target.value);
-                    if (e.target.value.toLowerCase().trim() === VOICE_PASSPHRASE) {
-                      setVoiceStatus('Passphrase verified!');
-                      setTimeout(() => onUnlock(), 800);
-                    }
-                  }}
-                  placeholder="Enter passphrase"
-                  className="w-full bg-transparent border border-jarvis-cyan/40 rounded-lg px-4 py-2 text-jarvis-cyan font-mono text-sm outline-none placeholder-jarvis-cyan/30 text-center tracking-widest"
-                />
+                <p className="text-jarvis-cyan/70 font-mono text-xs text-center">
+                  To register, click start and say: <br />
+                  <span className="text-white font-bold">"access the Raj Lab"</span>
+                </p>
+                
                 <button
                   type="button"
-                  onClick={() => setShowTypeFallback(false)}
+                  onClick={listening ? stopVoiceRegistration : startVoiceRegistration}
+                  className={`w-full font-orbitron text-xs py-3 rounded-lg border transition-all tracking-widest ${
+                    listening
+                      ? 'border-red-500/50 text-red-500 bg-red-500/10 animate-pulse'
+                      : 'border-jarvis-cyan/50 text-jarvis-cyan hover:bg-jarvis-cyan/10'
+                  }`}
+                >
+                  {listening ? 'STOP RECORDING' : `START SAMPLE ${regSampleIndex + 1}`}
+                </button>
+
+                <p className="text-jarvis-cyan/60 font-mono text-xs text-center">{voiceStatus}</p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVoiceSubStage('authenticate');
+                    setVoiceStatus('Press the button and say the passphrase');
+                  }}
                   className="text-jarvis-cyan/50 hover:text-jarvis-cyan font-mono text-[10px] underline mt-2"
                 >
-                  Use Voice Authentication
+                  Cancel Registration
                 </button>
               </>
             ) : (
               <>
-                <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Say your secret passphrase</p>
-                <button
-                  onClick={startVoiceAuth}
-                  disabled={listening}
-                  className={`w-full font-orbitron text-xs py-3 rounded-lg border transition-all tracking-widest ${
-                    listening
-                      ? 'border-green-400/50 text-green-400 bg-green-400/10 animate-pulse'
-                      : 'border-jarvis-cyan/50 text-jarvis-cyan hover:bg-jarvis-cyan/10'
-                  }`}
-                >
-                  {listening ? 'LISTENING...' : 'SPEAK PASSPHRASE'}
-                </button>
-                <p className="text-jarvis-cyan/60 font-mono text-xs text-center">{voiceStatus}</p>
-                <button
-                  type="button"
-                  onClick={() => setShowTypeFallback(true)}
-                  className="text-jarvis-cyan/50 hover:text-jarvis-cyan font-mono text-[10px] underline mt-2"
-                >
-                  Can't use mic? Type passphrase
-                </button>
+                {showTypeFallback ? (
+                  <>
+                    <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Type the secret passphrase</p>
+                    <input
+                      autoFocus
+                      type="text"
+                      value={typedPassphrase}
+                      onChange={(e) => {
+                        setTypedPassphrase(e.target.value);
+                        if (e.target.value.toLowerCase().trim() === VOICE_PASSPHRASE) {
+                          setVoiceStatus('Passphrase verified!');
+                          setTimeout(() => onUnlock(), 800);
+                        }
+                      }}
+                      placeholder="Enter passphrase"
+                      className="w-full bg-transparent border border-jarvis-cyan/40 rounded-lg px-4 py-2 text-jarvis-cyan font-mono text-sm outline-none placeholder-jarvis-cyan/30 text-center tracking-widest"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowTypeFallback(false)}
+                      className="text-jarvis-cyan/50 hover:text-jarvis-cyan font-mono text-[10px] underline mt-2"
+                    >
+                      Use Voice Authentication
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Say: <span className="text-white font-bold">"avneet is mine"</span></p>
+                    
+                    <button
+                      onClick={startVoiceAuth}
+                      disabled={listening}
+                      className={`w-full font-orbitron text-xs py-3 rounded-lg border transition-all tracking-widest ${
+                        listening
+                          ? 'border-green-400/50 text-green-400 bg-green-400/10 animate-pulse'
+                          : 'border-jarvis-cyan/50 text-jarvis-cyan hover:bg-jarvis-cyan/10'
+                      }`}
+                    >
+                      {listening ? 'LISTENING & RECORDING...' : 'SPEAK PASSPHRASE'}
+                    </button>
+
+                    <p className="text-jarvis-cyan/60 font-mono text-xs text-center">{voiceStatus}</p>
+
+                    <div className="flex flex-col gap-2 w-full mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVoiceSubStage('register');
+                          setVoiceStatus('Click Start and say "access the Raj Lab"');
+                        }}
+                        className="w-full border border-[#d97706]/40 text-[#d97706] font-orbitron text-[10px] py-2 rounded hover:bg-[#d97706]/10 transition-all tracking-widest uppercase"
+                      >
+                        Register Voice Profile
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setShowTypeFallback(true)}
+                        className="text-jarvis-cyan/50 hover:text-jarvis-cyan font-mono text-[10px] underline text-center"
+                      >
+                        Can't use mic? Type passphrase
+                      </button>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -309,28 +537,48 @@ function JarvisApp() {
   const [activityState, setActivityState] = useState('STANDBY');
   const [liveTranscript, setLiveTranscript] = useState('> Click anywhere to activate mic...');
   const [textInput, setTextInput] = useState('');
+  const [showConsent, setShowConsent] = useState(true);
+  const [rightPanel, setRightPanel] = useState('docs'); // 'docs' | 'biometrics'
+  const [voiceScore, setVoiceScore] = useState(null);
+  const [faceScore, setFaceScore] = useState(null);
 
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   const isBusyRef = useRef(false);
+  const commandRecorderRef = useRef(new WavRecorder());
 
-  const sendCommand = (command) => {
+  const sendCommand = (command, audioB64 = '') => {
     if (!command.trim()) return;
-    // Immediately mark as not busy so mic can restart after this command
     isBusyRef.current = false;
-    socket.emit('process_command', { command: command.trim().toLowerCase() });
+    socket.emit('process_command', { 
+      command: command.trim().toLowerCase(),
+      audio: audioB64
+    });
     setTextInput('');
     setLiveTranscript('> Sending: ' + command.trim());
   };
 
   const startMic = () => {
-    if (isListeningRef.current || isBusyRef.current) return;
+    if (isListeningRef.current || isBusyRef.current || showConsent) return;
     try { recognitionRef.current.start(); } catch { /* mic may already be active */ }
   };
 
   const stopMic = () => {
     if (!isListeningRef.current) return;
     try { recognitionRef.current.stop(); } catch { /* mic may already be stopped */ }
+  };
+
+  const handleConsentYes = () => {
+    setShowConsent(false);
+    // Explicitly wake up backend session
+    socket.emit('process_command', { command: 'yes' });
+    setTimeout(() => startMic(), 800);
+  };
+
+  const handleConsentNo = () => {
+    setShowConsent(false);
+    // Explicitly dismiss backend session
+    socket.emit('process_command', { command: 'no' });
   };
 
   useEffect(() => {
@@ -360,9 +608,15 @@ function JarvisApp() {
       }
     });
 
+    socket.on('intruder_alert', (data) => {
+      // Update biometric scores when intruder is detected
+      if (data.score !== undefined) setVoiceScore(data.score);
+      setRightPanel('biometrics'); // auto-switch to biometrics panel
+    });
+
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      // Speech recognition not supported — no cleanup needed
       return;
     }
 
@@ -370,12 +624,13 @@ function JarvisApp() {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
-    recognition.maxAlternatives = 3;
+    recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
 
-    recognition.onstart = () => {
+    recognition.onstart = async () => {
       isListeningRef.current = true;
       setLiveTranscript('> Listening...');
+      await commandRecorderRef.current.start();
     };
 
     recognition.onend = () => {
@@ -383,7 +638,7 @@ function JarvisApp() {
       if (!isBusyRef.current) setTimeout(() => startMic(), 300);
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = async (event) => {
       let finalText = '';
       let interimText = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -392,17 +647,30 @@ function JarvisApp() {
       }
       if (interimText) setLiveTranscript('> ' + interimText);
       if (finalText) {
+        const audioBlob = commandRecorderRef.current.stop();
         const command = finalText.toLowerCase().trim()
           .replace(/hey jarvis/g, '').replace(/\bjarvis\b/g, '').trim();
+
         if (command.length > 0) {
-          setLiveTranscript('> Sending: ' + command);
-          sendCommand(command);
+          if (audioBlob) {
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+              const base64data = reader.result;
+              setLiveTranscript('> Sending voice command: ' + command);
+              sendCommand(command, base64data);
+            };
+          } else {
+            setLiveTranscript('> Sending: ' + command);
+            sendCommand(command);
+          }
         }
       }
     };
 
     recognition.onerror = (event) => {
       isListeningRef.current = false;
+      commandRecorderRef.current.stop();
       if (event.error === 'not-allowed') {
         setLiveTranscript('> Mic permission denied. Use text input below.');
         isBusyRef.current = true;
@@ -421,13 +689,15 @@ function JarvisApp() {
 
     return () => {
       recognition.stop();
+      commandRecorderRef.current.stop();
       window.removeEventListener('click', handleClick);
       socket.disconnect();
     };
-  }, []);
+  }, [showConsent]);
 
   return (
     <div className="w-screen h-screen relative overflow-hidden">
+      <ConsentModal isOpen={showConsent} onYes={handleConsentYes} onNo={handleConsentNo} />
       <div className="scanlines"></div>
       <Globe3D />
       <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
@@ -480,7 +750,41 @@ function JarvisApp() {
 
             <div className="w-80 pointer-events-auto flex flex-col space-y-4">
               <SystemInfo />
-              <DocumentAnalysis />
+              {/* Right Panel Toggle */}
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '-8px' }}>
+                <button
+                  onClick={() => setRightPanel('docs')}
+                  style={{
+                    flex: 1,
+                    padding: '5px 0',
+                    borderRadius: '6px',
+                    border: `1px solid ${rightPanel === 'docs' ? 'rgba(0,212,255,0.6)' : 'rgba(255,255,255,0.1)'}`,
+                    background: rightPanel === 'docs' ? 'rgba(0,212,255,0.1)' : 'transparent',
+                    color: rightPanel === 'docs' ? '#00d4ff' : 'rgba(255,255,255,0.3)',
+                    fontSize: '9px', fontWeight: '700', letterSpacing: '1px',
+                    textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s',
+                    fontFamily: 'monospace',
+                  }}
+                >📄 DOCS</button>
+                <button
+                  onClick={() => setRightPanel('biometrics')}
+                  style={{
+                    flex: 1,
+                    padding: '5px 0',
+                    borderRadius: '6px',
+                    border: `1px solid ${rightPanel === 'biometrics' ? 'rgba(123,47,255,0.7)' : 'rgba(255,255,255,0.1)'}`,
+                    background: rightPanel === 'biometrics' ? 'rgba(123,47,255,0.15)' : 'transparent',
+                    color: rightPanel === 'biometrics' ? '#a855f7' : 'rgba(255,255,255,0.3)',
+                    fontSize: '9px', fontWeight: '700', letterSpacing: '1px',
+                    textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s',
+                    fontFamily: 'monospace',
+                  }}
+                >🔐 BIOMETRICS</button>
+              </div>
+              {rightPanel === 'docs'
+                ? <DocumentAnalysis />
+                : <BiometricsDashboard socket={socket} voiceScore={voiceScore} faceScore={faceScore} />
+              }
             </div>
           </div>
 

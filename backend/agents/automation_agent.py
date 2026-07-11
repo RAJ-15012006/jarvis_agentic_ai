@@ -4,6 +4,8 @@ import time
 import pyautogui
 import os
 import re
+import sys
+import subprocess
 import requests
 import json
 from groq import Groq
@@ -18,8 +20,6 @@ SCHEDULE_FILE = os.path.join(os.path.dirname(__file__), "..", "schedule.txt")
 
 def _open_vscode() -> str:
     """Open VS Code by clicking on the window and typing 'vs code'."""
-    import subprocess
-    import sys
     
     if sys.platform == "darwin":
         try:
@@ -443,6 +443,188 @@ def _instagram_action(person: str, message: str) -> str:
         return f"Raj, message '{message}' sent to {person} on Instagram."
     return f"Raj, opened Instagram DM with {person}."
 
+
+# ---------------------------------------------------------------------------
+# Chrome / Webpage Navigation Commands
+# ---------------------------------------------------------------------------
+
+def _focus_chrome() -> bool:
+    """Bring Google Chrome to foreground. Returns True if successful."""
+    try:
+        if sys.platform == "darwin":
+            os.system("osascript -e 'tell application \"Google Chrome\" to activate'")
+            time.sleep(0.5)
+            return True
+        else:
+            import pygetwindow as gw
+            wins = [w for w in gw.getAllWindows() if "chrome" in w.title.lower() and w.visible]
+            if wins:
+                wins[0].restore()
+                wins[0].activate()
+                time.sleep(0.5)
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _chrome_nav(command: str) -> str:
+    """
+    Execute in-page / tab navigation commands in Chrome via keyboard shortcuts.
+    Supported: scroll, go back/forward, refresh, zoom, new tab, find, read URL, tab switch.
+    Returns a response string, or None if command is not recognised.
+    """
+    cmd = command.lower().strip()
+
+    IS_MAC = sys.platform == "darwin"
+    mod = 'command' if IS_MAC else 'ctrl'
+
+    # --- Scroll commands ---
+    if any(p in cmd for p in ["scroll down", "scroll the page down", "page down", "go down"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        amount = 5  # number of scroll steps
+        for _ in range(amount):
+            pyautogui.press('space')  # Space scrolls one page-height down
+        return "Scrolled down, Raj."
+
+    elif any(p in cmd for p in ["scroll up", "scroll the page up", "page up", "go up"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        for _ in range(5):
+            pyautogui.hotkey('shift', 'space')
+        return "Scrolled up, Raj."
+
+    elif any(p in cmd for p in ["scroll to top", "go to top", "top of page", "beginning of page"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey('ctrl', 'home') if not IS_MAC else pyautogui.hotkey('command', 'up')
+        return "Scrolled to the top of the page, Raj."
+
+    elif any(p in cmd for p in ["scroll to bottom", "go to bottom", "bottom of page", "end of page"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey('ctrl', 'end') if not IS_MAC else pyautogui.hotkey('command', 'down')
+        return "Scrolled to the bottom of the page, Raj."
+
+    # --- Back / Forward ---
+    elif any(p in cmd for p in ["go back", "previous page", "back page"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, 'left')
+        return "Going back, Raj."
+
+    elif any(p in cmd for p in ["go forward", "next page", "forward page"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, 'right')
+        return "Going forward, Raj."
+
+    # --- Refresh ---
+    elif any(p in cmd for p in ["refresh", "reload", "refresh the page", "reload page"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, 'r')
+        return "Page refreshed, Raj."
+
+    # --- New tab ---
+    elif any(p in cmd for p in ["new tab", "open new tab", "open a tab"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, 't')
+        return "Opened a new tab, Raj."
+
+    # --- Zoom in / out / reset ---
+    elif any(p in cmd for p in ["zoom in", "make bigger", "increase zoom"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, '+')
+        return "Zoomed in, Raj."
+
+    elif any(p in cmd for p in ["zoom out", "make smaller", "decrease zoom"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, '-')
+        return "Zoomed out, Raj."
+
+    elif any(p in cmd for p in ["reset zoom", "normal zoom", "zoom 100"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, '0')
+        return "Zoom reset to 100%, Raj."
+
+    # --- Find on page ---
+    elif any(p in cmd for p in ["find on page", "search on page", "ctrl f", "find text"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        # Extract search term
+        search_term = ""
+        for kw in ["find on page", "search on page", "find text", "find"]:
+            if kw in cmd:
+                candidate = cmd.split(kw)[-1].strip()
+                if candidate:
+                    search_term = candidate
+                    break
+        pyautogui.hotkey(mod, 'f')
+        time.sleep(0.5)
+        if search_term:
+            pyautogui.typewrite(_safe_typewrite(search_term), interval=0.08)
+            return f"Searching for '{search_term}' on the current page, Raj."
+        return "Find bar opened, Raj. What should I search for?"
+
+    # --- Read current page URL ---
+    elif any(p in cmd for p in ["what page", "what site", "what url", "current url",
+                                  "read url", "where am i"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        # Focus address bar, select all, copy
+        pyautogui.hotkey(mod, 'l')
+        time.sleep(0.4)
+        pyautogui.hotkey(mod, 'a')
+        time.sleep(0.2)
+        pyautogui.hotkey(mod, 'c')
+        time.sleep(0.2)
+        pyautogui.press('escape')  # Close address bar
+        try:
+            result = subprocess.run(['pbpaste'], capture_output=True, text=True)
+            url = result.stdout.strip()
+            if url:
+                return f"You are currently on: {url}"
+        except Exception:
+            pass
+        return "Raj, I couldn't read the current URL — try asking Chrome directly."
+
+    # --- Next/Previous Chrome tab ---
+    elif any(p in cmd for p in ["next tab", "switch tab", "tab right"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, 'tab')
+        return "Switched to the next tab, Raj."
+
+    elif any(p in cmd for p in ["previous tab", "tab left", "last tab"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.hotkey(mod, 'shift', 'tab')
+        return "Switched to the previous tab, Raj."
+
+    # --- Click / Press Enter ---
+    elif any(p in cmd for p in ["click", "press enter", "hit enter", "submit"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.press('enter')
+        return "Clicked / pressed Enter, Raj."
+
+    # --- Fullscreen ---
+    elif any(p in cmd for p in ["fullscreen", "full screen", "maximize browser"]):
+        if not _focus_chrome():
+            return "Raj, Chrome is not open."
+        pyautogui.press('f11') if not IS_MAC else pyautogui.hotkey('ctrl', 'command', 'f')
+        return "Toggled fullscreen, Raj."
+
+    # Not a navigation command
+    return None
+
+
 def execute_automation(command: str) -> str:
     cmd = command.lower().strip()
     try:
@@ -450,6 +632,14 @@ def execute_automation(command: str) -> str:
         # --- Open VS Code ---
         if "open vs code" in cmd or "open vscode" in cmd or "launch vs code" in cmd:
             return _open_vscode()
+
+        # --- Close ALL tabs (fast-path, checked before single-tab close) ---
+        elif any(p in cmd for p in [
+            "close all tabs", "close every tab", "close all chrome tabs",
+            "close all browser tabs", "shut all tabs", "close all the tabs"
+        ]):
+            from agents.security_agent import close_all_chrome_tabs
+            return close_all_chrome_tabs()
 
         # --- Close any website tab ---
         elif "close" in cmd:
@@ -495,14 +685,14 @@ def execute_automation(command: str) -> str:
                 _open_and_wait(url)
                 return f"Opening {site.strip()}, Raj."
 
-        # --- Google ---
-        elif "google" in cmd:
+        # --- Google / Generic Search ---
+        elif "google" in cmd or any(k in cmd for k in ["search for", "search the web", "look up", "find online"]):
             # Extract search query
             query = ""
-            for kw in ["search", "search for", "find", "look up"]:
+            for kw in ["search for", "search the web for", "search", "find online", "look up", "find"]:
                 if kw in cmd:
                     query = cmd.split(kw)[-1].strip()
-                    for noise in ["on google", "google", "please", "in google"]:
+                    for noise in ["on google", "google", "please", "in google", "online"]:
                         query = query.replace(noise, "").strip()
                     break
             if query:
@@ -682,7 +872,11 @@ def execute_automation(command: str) -> str:
                 f.write(task + "\n")
             return f"Raj, I have added '{task}' to your schedule."
 
+        # --- Chrome / Webpage Navigation ---
         else:
+            nav_result = _chrome_nav(command)
+            if nav_result:
+                return nav_result
             return "Raj, I have attempted to automate that task, but no specific module was engaged."
 
     except Exception as e:

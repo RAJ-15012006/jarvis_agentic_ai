@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "JARVIS Browser Agent",
+  "version": "1.0",
+  "description": "Connects your browser to JARVIS — allows Jarvis to control tabs, search, close tabs, and follow voice instructions on any page.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/jarvis16.png",
+      "48": "icons/jarvis48.png",
+      "128": "icons/jarvis128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/jarvis16.png",
+    "48": "icons/jarvis48.png",
+    "128": "icons/jarvis128.png"
+  }
+}

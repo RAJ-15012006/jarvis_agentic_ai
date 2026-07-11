@@ -16,7 +16,8 @@ def fallback_route(command: str) -> dict:
         "youtube", "instagram", "insta", "play", "whatsapp", "message", "remind", "note", "schedule",
         "linkedin", "github", "portfolio", "repo", "chatgpt", "gpt", "gemini", "claude", "close", "tab",
         "website", "site", "amazon", "netflix", "flipkart", "irctc", "zomato", "swiggy", "google",
-        "vscode", "vs code", "code"
+        "vscode", "vs code", "code", "search for", "look up", "find online", "search the web",
+        "close all tabs", "close every tab", "close all browser tabs"
     ]
     
     web_keywords = [
@@ -26,11 +27,23 @@ def fallback_route(command: str) -> dict:
     ]
     
     system_keywords = [
-        "shutdown", "restart", "reboot", "sleep", "hibernate", "lock", "screenshot", "volume", 
-        "brightness", "mute", "unmute", "notepad", "type", "turn", "folder", "script", 
-        "command", "battery", "disk", "python", "code", "run"
+        "shutdown", "shut down", "restart", "reboot", "sleep", "hibernate", "lock", "screenshot", "volume",
+        "brightness", "mute", "unmute", "notepad", "type", "turn", "folder", "script",
+        "command", "battery", "disk", "python", "code", "run", "power off", "turn off"
     ]
 
+    # Check for multi-word phrase matches first
+    for kw in automation_keywords:
+        if len(kw.split()) > 1 and kw in cmd:
+            return {"agent": "automation", "command": command}
+    for kw in system_keywords:
+        if len(kw.split()) > 1 and kw in cmd:
+            return {"agent": "system", "command": command}
+    for kw in web_keywords:
+        if len(kw.split()) > 1 and kw in cmd:
+            return {"agent": "web", "command": command}
+
+    # Fall back to word-by-word matches
     def _has_intent(target_keywords, threshold=0.8):
         for word in words:
             if word in target_keywords:

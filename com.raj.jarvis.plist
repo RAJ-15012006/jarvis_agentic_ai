@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Unique label for this LaunchAgent -->
+    <key>Label</key>
+    <string>com.raj.jarvis</string>
+
+    <!-- The script to run on login -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/rajsamrendrakumar/Desktop/jarvis_main/jarvis_autostart.sh</string>
+    </array>
+
+    <!-- Run automatically when user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Auto-restart if it crashes -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Delay 5 seconds after login before starting (let desktop load) -->
+    <key>StartInterval</key>
+    <integer>0</integer>
+
+    <!-- Throttle restarts — wait 10s between crashes -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Log stdout and stderr -->
+    <key>StandardOutPath</key>
+    <string>/Users/rajsamrendrakumar/Library/Logs/jarvis_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/rajsamrendrakumar/Library/Logs/jarvis_stderr.log</string>
+
+    <!-- Set working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/rajsamrendrakumar/Desktop/jarvis_main</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/rajsamrendrakumar</string>
+    </dict>
+</dict>
+</plist>

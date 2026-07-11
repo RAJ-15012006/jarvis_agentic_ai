@@ -10,7 +10,6 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-dist/
 build/
 *.egg
 .venv/
@@ -22,13 +21,18 @@ backend/venv/
 node_modules/
 frontend/dist/
 
-# JARVIS sensitive data
+# JARVIS sensitive biometric data (NEVER commit these)
 backend/memory.json
 backend/memory.enc
 backend/memory.key
 backend/schedule.txt
-backend/face_data/
 backend/built_sites/
+
+# Face & voice biometric models (trained locally, not pushed to GitHub)
+backend/agents/face_data/lbph_face_model.xml
+backend/agents/face_data/voice_profile.npy
+backend/agents/face_data/intruder_log/
+backend/face_data/
 
 # OS
 .DS_Store
@@ -39,3 +43,7 @@ Thumbs.db
 .idea/
 *.suo
 *.user
+
+# Logs
+*.log
+backend/temp/
