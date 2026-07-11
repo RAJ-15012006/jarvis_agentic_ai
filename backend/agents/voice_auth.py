@@ -154,7 +154,8 @@ def verify_speaker(audio_bytes: bytes) -> tuple[bool, float]:
         return False, 0.0
 
     similarity = dot_prod / (norm_a * norm_b)
-    is_raj = similarity >= SIMILARITY_THRESHOLD
+    is_raj = bool(similarity >= SIMILARITY_THRESHOLD)
+    score = float(similarity)
 
-    print(f"[VOICE AUTH] Speaker similarity score: {similarity:.4f} (Match: {is_raj})")
-    return is_raj, float(similarity)
+    print(f"[VOICE AUTH] Speaker similarity score: {score:.4f} (Match: {is_raj})")
+    return is_raj, score

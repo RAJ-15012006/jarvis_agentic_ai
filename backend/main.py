@@ -273,7 +273,7 @@ async def voice_verify(file: UploadFile = File(...)):
         from agents.voice_auth import verify_speaker
         content = await file.read()
         is_raj, score = verify_speaker(content)
-        return {"verified": is_raj, "score": score}
+        return {"verified": bool(is_raj), "score": float(score)}
     except Exception as e:
         return {"verified": False, "error": str(e)}
 
