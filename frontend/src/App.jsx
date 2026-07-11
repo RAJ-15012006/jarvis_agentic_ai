@@ -595,7 +595,7 @@ function JarvisApp() {
   const [activityState, setActivityState] = useState('STANDBY');
   const [liveTranscript, setLiveTranscript] = useState('> Click anywhere to activate mic...');
   const [textInput, setTextInput] = useState('');
-  const [showConsent, setShowConsent] = useState(true);
+  const [showConsent, setShowConsent] = useState(false);
   const [rightPanel, setRightPanel] = useState('docs');   // 'docs' | 'biometrics'
   const [leftPanel, setLeftPanel] = useState('activity'); // 'activity' | 'spotify' | 'emotion' | 'github'
   const [voiceScore, setVoiceScore] = useState(null);
@@ -643,6 +643,12 @@ function JarvisApp() {
 
   useEffect(() => {
     socket.connect();
+
+    socket.on('connect', () => {
+      // Automatically activate session on socket connect since user already consented
+      socket.emit('process_command', { command: 'yes' });
+      setTimeout(() => startMic(), 1200);
+    });
 
     socket.on('system_log', (log) => {
       setLogs(prev => [log, ...prev].slice(0, 50));
@@ -771,7 +777,6 @@ function JarvisApp() {
 
   return (
     <div className="w-screen h-screen relative overflow-hidden">
-      <ConsentModal isOpen={showConsent} onYes={handleConsentYes} onNo={handleConsentNo} />
       <div className="scanlines"></div>
       <Globe3D />
       <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
@@ -963,12 +968,42 @@ function JarvisApp() {
 }
 
 function App() {
+  const [consentGiven, setConsentGiven] = useState(null); // null | 'yes' | 'no'
   const [unlocked, setUnlocked] = useState(false);
   const [voiceSelected, setVoiceSelected] = useState(false);
 
+  if (consentGiven === null) {
+    return (
+      <ConsentModal
+        isOpen={true}
+        onYes={() => setConsentGiven('yes')}
+        onNo={() => setConsentGiven('no')}
+      />
+    );
+  }
+
+  if (consentGiven === 'no') {
+    return (
+      <div className="w-screen h-screen flex items-center justify-center bg-black font-orbitron text-red-500 tracking-widest text-center px-4">
+        <div className="flex flex-col items-center gap-6 p-8 border border-red-500/30 rounded-xl bg-black/90 max-w-sm w-full">
+          <p className="text-sm uppercase tracking-widest text-red-400">JARVIS OS DISMISSED</p>
+          <p className="text-[11px] text-white/50 leading-relaxed font-mono">
+            The AI system has stood down. Re-engage when help is required.
+          </p>
+          <button
+            onClick={() => setConsentGiven(null)}
+            className="w-full border border-red-500/50 text-red-500 font-orbitron text-xs py-2 rounded-lg hover:bg-red-500/10 transition-all tracking-widest"
+          >
+            RE-ENGAGE SYSTEM
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!unlocked) return <PasswordGate onUnlock={() => setUnlocked(true)} />;
   if (!voiceSelected) return <VoiceSelector onComplete={() => setVoiceSelected(true)} />;
-  
+
   return <JarvisApp />;
 }
 
