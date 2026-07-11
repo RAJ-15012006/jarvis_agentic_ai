@@ -88,69 +88,8 @@ socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 async def root():
     return {"status": "JARVIS is online", "core": "running"}
 
-# ── Global Microphone Listener & Execution Engine ────────────────────────────────
+# ── Global Microphone Listener & Execution Engine (Standalone Process Helper) ─────
 main_loop = None
-
-def global_mic_listener():
-    import sounddevice as sd
-    import soundfile as sf
-    import speech_recognition as sr
-    import numpy as np
-    import tempfile
-    import os
-    import time
-    
-    fs = 16000
-    chunk_seconds = 3.5  # Listen in 3.5-second windows
-    r = sr.Recognizer()
-    print("[GLOBAL MIC] Global mic listener thread started.")
-    
-    while True:
-        try:
-            if main_loop is None:
-                time.sleep(1)
-                continue
-                
-            # Record from microphone
-            recording = sd.rec(int(chunk_seconds * fs), samplerate=fs, channels=1, dtype='int16')
-            sd.wait()
-            
-            # Simple VAD (Voice Activity Detection) threshold check
-            max_val = np.max(np.abs(recording))
-            if max_val < 900:  # Silence threshold (tweak based on room noise)
-                continue
-                
-            temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, f"jarvis_global_{int(time.time())}.wav")
-            sf.write(temp_path, recording, fs)
-            
-            with sr.AudioFile(temp_path) as source:
-                audio_data = r.record(source)
-                
-            try:
-                # Transcribe speech
-                text = r.recognize_google(audio_data).lower().strip()
-                if text:
-                    cleaned = text.replace("hey jarvis", "").replace("jarvis", "").strip()
-                    if cleaned:
-                        print(f"[GLOBAL MIC] Heard command: '{cleaned}'")
-                        asyncio.run_coroutine_threadsafe(
-                            execute_global_command(cleaned),
-                            main_loop
-                        )
-            except sr.UnknownValueError:
-                pass
-            except Exception as e:
-                print(f"[GLOBAL MIC] Recognition error: {e}")
-            finally:
-                if os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except:
-                        pass
-        except Exception as e:
-            print(f"[GLOBAL MIC] Loop error: {e}")
-            time.sleep(2)
 
 async def execute_global_command(command: str):
     """Executes a voice command globally from the background mic thread."""
@@ -225,18 +164,48 @@ async def execute_global_command(command: str):
     await asyncio.to_thread(speak_text, response)
     await sio.emit('activity_state', {'state': 'STANDBY'})
 
+from fastapi import Request
+@app.post("/api/voice-command")
+async def voice_command_endpoint(request: Request):
+    """Receives voice commands from the standalone voice listener process."""
+    try:
+        data = await request.json()
+        command = data.get("command", "").strip()
+        if not command:
+            return {"success": False, "error": "Empty command"}
+            
+        if main_loop:
+            asyncio.run_coroutine_threadsafe(
+                execute_global_command(command),
+                main_loop
+            )
+            return {"success": True, "message": "Command queued"}
+        else:
+            return {"success": False, "error": "Main event loop not initialized"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @app.on_event("startup")
 async def startup_event():
     """Start background services when the server boots."""
     global main_loop
     main_loop = asyncio.get_event_loop()
+    
     import threading
+    import subprocess
+    import sys
+    
     # Start proactive engine in background
     threading.Thread(target=start_proactive_engine, daemon=True).start()
     print("[STARTUP] Proactive engine started.")
-    # Start global microphone listener thread
-    threading.Thread(target=global_mic_listener, daemon=True).start()
-    print("[STARTUP] Global microphone listener started.")
+    
+    # Start global microphone listener as a standalone OS process to prevent uvicorn deadlock
+    try:
+        listener_script = os.path.join(os.path.dirname(__file__), "global_voice_listener.py")
+        subprocess.Popen([sys.executable, listener_script], close_fds=True)
+        print("[STARTUP] Standalone global voice listener process spawned successfully.")
+    except Exception as e:
+        print(f"[STARTUP ERROR] Could not spawn standalone voice listener: {e}")
 
 
 @app.get("/api/recommendation")
