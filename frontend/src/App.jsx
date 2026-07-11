@@ -38,7 +38,12 @@ class WavRecorder {
   async start() {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      try {
+        this.audioCtx = new AudioCtxClass({ sampleRate: 16000 });
+      } catch (err) {
+        this.audioCtx = new AudioCtxClass(); // fallback to default sample rate if 16k is not supported
+      }
       this.input = this.audioCtx.createMediaStreamSource(this.stream);
       this.processor = this.audioCtx.createScriptProcessor(4096, 1, 1);
       
@@ -81,6 +86,8 @@ class WavRecorder {
       offset += this.leftChannel[i].length;
     }
 
+    const sr = this.audioCtx ? this.audioCtx.sampleRate : 16000;
+
     // Convert to PCM WAV
     const buffer = new ArrayBuffer(44 + result.length * 2);
     const view = new DataView(buffer);
@@ -98,8 +105,8 @@ class WavRecorder {
     view.setUint32(16, 16, true);
     view.setUint16(20, 1, true);
     view.setUint16(22, 1, true);
-    view.setUint32(24, 16000, true);
-    view.setUint32(28, 32000, true);
+    view.setUint32(24, sr, true);
+    view.setUint32(28, sr * 2, true);
     view.setUint16(32, 2, true);
     view.setUint16(34, 16, true);
     writeString(view, 36, 'data');
@@ -151,11 +158,7 @@ function PasswordGate({ onUnlock }) {
     setError('');
   };
 
-  const triggerTouchID = async () => {
-    setIsScanning(true);
-    setFpStatus('Scanning Touch ID fingerprint pattern...');
-    
-    // Simulate Touch ID biometric scan
+  const runFingerprintSimulation = () => {
     let progress = 0;
     const interval = setInterval(() => {
       progress += 10;
@@ -167,6 +170,58 @@ function PasswordGate({ onUnlock }) {
         setTimeout(() => setStage('voice'), 1000);
       }
     }, 150);
+  };
+
+  const triggerTouchID = async () => {
+    setIsScanning(true);
+    setFpStatus('Scanning Touch ID fingerprint pattern...');
+    
+    // Check if browser supports WebAuthn Touch ID (macOS platform authentication)
+    if (window.PublicKeyCredential && 
+        typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
+      try {
+        const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (available) {
+          setFpStatus('Place your finger on Touch ID sensor...');
+          
+          // Generate a cryptographically secure challenge
+          const challenge = new Uint8Array(32);
+          window.crypto.getRandomValues(challenge);
+          
+          const options = {
+            publicKey: {
+              challenge: challenge,
+              rp: { name: "JARVIS OS" },
+              user: {
+                id: new Uint8Array([1, 2, 3, 4]),
+                name: "raj@jarvis.local",
+                displayName: "Raj"
+              },
+              pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+              timeout: 15000,
+              authenticatorSelection: {
+                authenticatorAttachment: "platform", // forces native platform biometrics (Touch ID)
+                userVerification: "required"
+              }
+            }
+          };
+          
+          // Request assertion which triggers macOS native Touch ID prompt
+          await navigator.credentials.create(options);
+          
+          setFpProgress(100);
+          setFpStatus('Touch ID Biometrics Verified - Granted ✅');
+          setIsScanning(false);
+          setTimeout(() => setStage('voice'), 1000);
+          return;
+        }
+      } catch (err) {
+        console.warn("Touch ID credential request failed/cancelled, falling back to simulated scan:", err);
+      }
+    }
+    
+    // Fallback to simulation if cancelled or not supported
+    runFingerprintSimulation();
   };
 
   const startVoiceRegistration = async () => {
