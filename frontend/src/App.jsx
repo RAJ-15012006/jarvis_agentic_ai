@@ -140,7 +140,7 @@ function PasswordGate({ onUnlock }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (input !== 'avneet') {
+    if (input !== 'avneet is mine') {
       setError('Wrong password. Access denied.');
       setShake(true);
       setInput('');
