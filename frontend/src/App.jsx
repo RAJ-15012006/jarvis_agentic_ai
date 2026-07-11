@@ -130,10 +130,34 @@ function PasswordGate({ onUnlock }) {
   const [stage, setStage] = useState('password'); // 'password'|'fingerprint'|'voice'|'denied'|'locked'
   const [voiceSubStage, setVoiceSubStage] = useState('authenticate'); // 'authenticate'|'register'
   const [voiceStatus, setVoiceStatus] = useState('Press the button and say the passphrase');
+  const [voiceRegistered, setVoiceRegistered] = useState(false);
   const [listening, setListening] = useState(false);
   const [showTypeFallback, setShowTypeFallback] = useState(false);
   const [typedPassphrase, setTypedPassphrase] = useState('');
   const voiceAttempts = useRef(0);
+
+  // Check voice registration status on mount
+  useEffect(() => {
+    const checkVoiceRegistered = async () => {
+      try {
+        const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+        const res = await fetch(`${baseUrl}/api/voice-status`);
+        const data = await res.json();
+        if (data.registered) {
+          setVoiceRegistered(true);
+          setVoiceSubStage('authenticate');
+          setVoiceStatus('Press the button and say the passphrase');
+        } else {
+          setVoiceRegistered(false);
+          setVoiceSubStage('register');
+          setVoiceStatus('Click Start and say "access the Raj Lab" to register your voice profile.');
+        }
+      } catch (err) {
+        console.warn("Could not check voice status:", err);
+      }
+    };
+    checkVoiceRegistered();
+  }, []);
 
   // Voice profile registration variables
   const [regSampleIndex, setRegSampleIndex] = useState(0);
@@ -272,6 +296,7 @@ function PasswordGate({ onUnlock }) {
       const data = await res.json();
       if (data.success) {
         setVoiceStatus('Voice registered successfully! You can now authenticate.');
+        setVoiceRegistered(true);
         setVoiceSubStage('authenticate');
         regSamples.current = [];
         setRegSampleIndex(0);
@@ -538,16 +563,18 @@ function PasswordGate({ onUnlock }) {
                     <p className="text-jarvis-cyan/60 font-mono text-xs text-center">{voiceStatus}</p>
 
                     <div className="flex flex-col gap-2 w-full mt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVoiceSubStage('register');
-                          setVoiceStatus('Click Start and say "access the Raj Lab"');
-                        }}
-                        className="w-full border border-[#d97706]/40 text-[#d97706] font-orbitron text-[10px] py-2 rounded hover:bg-[#d97706]/10 transition-all tracking-widest uppercase"
-                      >
-                        Register Voice Profile
-                      </button>
+                      {!voiceRegistered && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVoiceSubStage('register');
+                            setVoiceStatus('Click Start and say "access the Raj Lab"');
+                          }}
+                          className="w-full border border-[#d97706]/40 text-[#d97706] font-orbitron text-[10px] py-2 rounded hover:bg-[#d97706]/10 transition-all tracking-widest uppercase"
+                        >
+                          Register Voice Profile
+                        </button>
+                      )}
                       
                       <button
                         type="button"

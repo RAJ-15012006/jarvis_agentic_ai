@@ -223,6 +223,16 @@ async def update_voice(request: Request):
     set_voice(gender)
     return {"status": "success", "voice": gender}
 
+@app.get("/api/voice-status")
+async def voice_status():
+    """Checks if Raj's voice profile is registered."""
+    try:
+        from agents.voice_auth import VOICE_PROFILE_PATH
+        import os
+        return {"registered": os.path.exists(VOICE_PROFILE_PATH)}
+    except Exception as e:
+        return {"registered": False, "error": str(e)}
+
 @app.get("/api/face-auth")
 async def face_auth():
     """Run face authentication — returns {verified: bool} after OpenCV webcam check."""
