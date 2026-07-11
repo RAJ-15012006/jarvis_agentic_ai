@@ -481,51 +481,39 @@ def _chrome_nav(command: str) -> str:
 
     # --- Scroll commands ---
     if any(p in cmd for p in ["scroll down", "scroll the page down", "page down", "go down"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
-        amount = 5  # number of scroll steps
+        # Perform scroll on currently active window (allows scrolling Chrome, Safari, Preview, PDFs)
+        amount = 5
         for _ in range(amount):
-            pyautogui.press('space')  # Space scrolls one page-height down
+            pyautogui.press('pagedown')
         return "Scrolled down, Raj."
 
     elif any(p in cmd for p in ["scroll up", "scroll the page up", "page up", "go up"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
-        for _ in range(5):
-            pyautogui.hotkey('shift', 'space')
+        amount = 5
+        for _ in range(amount):
+            pyautogui.press('pageup')
         return "Scrolled up, Raj."
 
     elif any(p in cmd for p in ["scroll to top", "go to top", "top of page", "beginning of page"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
         pyautogui.hotkey('ctrl', 'home') if not IS_MAC else pyautogui.hotkey('command', 'up')
         return "Scrolled to the top of the page, Raj."
 
     elif any(p in cmd for p in ["scroll to bottom", "go to bottom", "bottom of page", "end of page"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
         pyautogui.hotkey('ctrl', 'end') if not IS_MAC else pyautogui.hotkey('command', 'down')
         return "Scrolled to the bottom of the page, Raj."
 
     # --- Back / Forward ---
     elif any(p in cmd for p in ["go back", "previous page", "back page"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
         pyautogui.hotkey(mod, 'left')
         return "Going back, Raj."
 
     elif any(p in cmd for p in ["go forward", "next page", "forward page"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
         pyautogui.hotkey(mod, 'right')
         return "Going forward, Raj."
 
     # --- Refresh ---
     elif any(p in cmd for p in ["refresh", "reload", "refresh the page", "reload page"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
         pyautogui.hotkey(mod, 'r')
-        return "Page refreshed, Raj."
+        return "Refreshed the page, Raj."
 
     # --- New tab ---
     elif any(p in cmd for p in ["new tab", "open new tab", "open a tab"]):

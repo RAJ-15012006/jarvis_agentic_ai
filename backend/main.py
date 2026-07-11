@@ -88,13 +88,155 @@ socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 async def root():
     return {"status": "JARVIS is online", "core": "running"}
 
+# ── Global Microphone Listener & Execution Engine ────────────────────────────────
+main_loop = None
+
+def global_mic_listener():
+    import sounddevice as sd
+    import soundfile as sf
+    import speech_recognition as sr
+    import numpy as np
+    import tempfile
+    import os
+    import time
+    
+    fs = 16000
+    chunk_seconds = 3.5  # Listen in 3.5-second windows
+    r = sr.Recognizer()
+    print("[GLOBAL MIC] Global mic listener thread started.")
+    
+    while True:
+        try:
+            if main_loop is None:
+                time.sleep(1)
+                continue
+                
+            # Record from microphone
+            recording = sd.rec(int(chunk_seconds * fs), samplerate=fs, channels=1, dtype='int16')
+            sd.wait()
+            
+            # Simple VAD (Voice Activity Detection) threshold check
+            max_val = np.max(np.abs(recording))
+            if max_val < 900:  # Silence threshold (tweak based on room noise)
+                continue
+                
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"jarvis_global_{int(time.time())}.wav")
+            sf.write(temp_path, recording, fs)
+            
+            with sr.AudioFile(temp_path) as source:
+                audio_data = r.record(source)
+                
+            try:
+                # Transcribe speech
+                text = r.recognize_google(audio_data).lower().strip()
+                if text:
+                    cleaned = text.replace("hey jarvis", "").replace("jarvis", "").strip()
+                    if cleaned:
+                        print(f"[GLOBAL MIC] Heard command: '{cleaned}'")
+                        asyncio.run_coroutine_threadsafe(
+                            execute_global_command(cleaned),
+                            main_loop
+                        )
+            except sr.UnknownValueError:
+                pass
+            except Exception as e:
+                print(f"[GLOBAL MIC] Recognition error: {e}")
+            finally:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"[GLOBAL MIC] Loop error: {e}")
+            time.sleep(2)
+
+async def execute_global_command(command: str):
+    """Executes a voice command globally from the background mic thread."""
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    # Interrupt any active speech
+    interrupt()
+    
+    # Broadcast command to all connected frontend clients so the log updates
+    await sio.emit('system_log', {'time': now, 'type': 'user', 'message': f"[Voice] {command}"})
+    await sio.emit('activity_state', {'state': 'PROCESSING'})
+    
+    if is_shutdown_command(command):
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Initiating system shutdown, Sir."})
+        await sio.emit('activity_state', {'state': 'SPEAKING'})
+        await asyncio.to_thread(speak_text, "Understood, Sir. Shutting down now. Goodbye.")
+        shutdown_system()
+        return
+
+    if is_close_all_tabs_command(command):
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Closing all browser tabs, Sir."})
+        await sio.emit('activity_state', {'state': 'PROCESSING'})
+        result = await asyncio.to_thread(close_all_chrome_tabs)
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': result})
+        await sio.emit('activity_state', {'state': 'SPEAKING'})
+        await asyncio.to_thread(speak_text, result)
+        await sio.emit('activity_state', {'state': 'STANDBY'})
+        return
+
+    # Check for in-page navigation commands (scroll, zoom, refresh, etc.)
+    from agents.automation_agent import _chrome_nav
+    nav_response = await asyncio.to_thread(_chrome_nav, command)
+    if nav_response:
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': nav_response})
+        await sio.emit('activity_state', {'state': 'SPEAKING'})
+        await asyncio.to_thread(speak_text, nav_response)
+        await sio.emit('activity_state', {'state': 'STANDBY'})
+        return
+
+    # Normal routing
+    route_info = route_command(command)
+    agent_type = route_info.get("agent")
+    agent_name_upper = agent_type.upper() if agent_type else "UNKNOWN"
+    await sio.emit('system_log', {'time': now, 'type': 'system', 'message': f"ROUTING TO {agent_name_upper} AGENT"})
+    
+    response = ""
+    tab_url = None
+    try:
+        if agent_type == "system":       response = execute_system_command(command)
+        elif agent_type == "web":
+            result = web_search(command)
+            if isinstance(result, tuple):
+                response, tab_url = result
+            else:
+                response = result
+        elif agent_type == "automation": response = execute_automation(command)
+        elif agent_type == "screen":     response = await asyncio.to_thread(analyze_screen, command)
+        elif agent_type == "gmail":      response = await asyncio.to_thread(handle_gmail_command, command)
+        elif agent_type == "calendar":   response = await asyncio.to_thread(handle_calendar_command, command)
+        elif agent_type == "spotify":    response = await asyncio.to_thread(handle_spotify_command, command)
+        elif agent_type == "translation": response = await asyncio.to_thread(translate_command, command)
+        elif agent_type == "github":     response = await asyncio.to_thread(handle_github_command, command)
+        elif agent_type == "proactive":  response = await asyncio.to_thread(trigger_morning_briefing)
+        else:                            response = chat_response(command, "global")
+    except Exception as e:
+        response = f"Sir, I encountered a critical error: {e}"
+        
+    await sio.emit('activity_state', {'state': 'SPEAKING'})
+    await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': response})
+    if tab_url:
+        await sio.emit('open_tab', {'url': tab_url})
+    
+    await asyncio.to_thread(speak_text, response)
+    await sio.emit('activity_state', {'state': 'STANDBY'})
+
 @app.on_event("startup")
 async def startup_event():
     """Start background services when the server boots."""
+    global main_loop
+    main_loop = asyncio.get_event_loop()
     import threading
     # Start proactive engine in background
     threading.Thread(target=start_proactive_engine, daemon=True).start()
     print("[STARTUP] Proactive engine started.")
+    # Start global microphone listener thread
+    threading.Thread(target=global_mic_listener, daemon=True).start()
+    print("[STARTUP] Global microphone listener started.")
 
 
 @app.get("/api/recommendation")

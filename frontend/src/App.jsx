@@ -22,7 +22,7 @@ import jarvisAvatar from './assets/jarvis_avatar.jpg';
 const socket = io(window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin, { autoConnect: false, auth: { token: 'jarvis-local-secret' } });
 
 // Secret voice passphrase — only Raj knows this
-const VOICE_PASSPHRASE = 'avneet is mine';
+const VOICE_PASSPHRASE = 'i am jarvis i need help';
 
 // Web Audio PCM WAV Recorder
 class WavRecorder {
@@ -466,7 +466,7 @@ function PasswordGate({ onUnlock }) {
                   </>
                 ) : (
                   <>
-                    <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Say: <span className="text-white font-bold">"avneet is mine"</span></p>
+                    <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Say: <span className="text-white font-bold">"I am Jarvis, I need help"</span></p>
                     
                     <button
                       onClick={startVoiceAuth}
