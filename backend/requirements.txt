@@ -32,4 +32,25 @@ scipy
 pyperclip
 pygetwindow; sys_platform == 'win32'
 pypdf
+pillow
+numpy
 
+# ── Mega-Upgrade Dependencies ─────────────────────────────────────────────────
+# Screen reading (screenshot capture)
+# pillow already above — provides ImageGrab for cross-platform screenshots
+
+# Emotion detection (optional — falls back to OpenCV if not installed)
+deepface; python_requires>="3.8"
+fer
+
+# Google APIs (Gmail + Calendar)
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+
+# Spotify
+spotipy
+
+# Proactive scheduling
+schedule

@@ -48,6 +48,20 @@ except ImportError:
         print(f"Warning: Failed to auto-install pypdf: {e}")
 
 from agents.crew_agent import run_tech_digest_crew
+# ── NEW AGENTS (Mega-Upgrade) ─────────────────────────────────────────────────
+from agents.screen_agent import analyze_screen, is_screen_command
+from agents.emotion_agent import (
+    detect_emotion, emotion_check_response, get_current_emotion_state, is_emotion_command
+)
+from agents.gmail_agent import handle_gmail_command, is_gmail_command
+from agents.calendar_agent import handle_calendar_command, is_calendar_command
+from agents.spotify_agent import handle_spotify_command, is_spotify_command
+from agents.translation_agent import translate_command, is_translation_command
+from agents.github_stats_agent import handle_github_command, is_github_command
+from agents.proactive_agent import (
+    start_proactive_engine, get_pending_proactive_message,
+    trigger_morning_briefing, is_briefing_command
+)
 
 # JARVIS AI OS Main Server
 app = FastAPI(title="JARVIS AI OS", version="1.0.0")
@@ -73,6 +87,15 @@ socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 @app.get("/api")
 async def root():
     return {"status": "JARVIS is online", "core": "running"}
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background services when the server boots."""
+    import threading
+    # Start proactive engine in background
+    threading.Thread(target=start_proactive_engine, daemon=True).start()
+    print("[STARTUP] Proactive engine started.")
+
 
 @app.get("/api/recommendation")
 async def get_recommendation():
@@ -145,6 +168,47 @@ async def intruder_log():
         return {"success": True, "events": entries, "count": len(entries)}
     except Exception as e:
         return {"success": False, "error": str(e), "events": []}
+
+@app.get("/api/emotion-state")
+async def emotion_state():
+    """Returns the latest detected emotion state for the frontend."""
+    try:
+        state = get_current_emotion_state()
+        return {"success": True, **state}
+    except Exception as e:
+        return {"success": False, "error": str(e), "emotion": "neutral"}
+
+@app.get("/api/proactive-poll")
+async def proactive_poll():
+    """Polls for any pending proactive messages from JARVIS."""
+    try:
+        msg = get_pending_proactive_message()
+        if msg:
+            return {"success": True, "has_message": True, **msg}
+        return {"success": True, "has_message": False}
+    except Exception as e:
+        return {"success": False, "has_message": False, "error": str(e)}
+
+@app.get("/api/github-stats")
+async def github_stats_endpoint():
+    """Returns live GitHub stats for the HUD widget."""
+    try:
+        from agents.github_stats_agent import get_profile_stats, get_recent_activity
+        stats_text = await asyncio.to_thread(get_profile_stats)
+        activity_text = await asyncio.to_thread(get_recent_activity)
+        return {"success": True, "stats": stats_text, "activity": activity_text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/spotify-now-playing")
+async def spotify_now_playing():
+    """Returns the currently playing Spotify track."""
+    try:
+        from agents.spotify_agent import get_now_playing
+        result = await asyncio.to_thread(get_now_playing)
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -652,7 +716,30 @@ async def process_command(sid, data):
             if not topic:
                 topic = "latest AI and technology news"
             response = run_tech_digest_crew(topic)
-        else:                            response = chat_response(command, sid)
+        # ── NEW AGENTS ────────────────────────────────────────────────────────
+        elif agent_type == "screen":
+            response = await asyncio.to_thread(analyze_screen, command)
+        elif agent_type == "emotion":
+            response = await asyncio.to_thread(emotion_check_response, command)
+            # Also emit emotion state for the HUD
+            emotion_state_data = get_current_emotion_state()
+            await sio.emit('emotion_update', emotion_state_data, room=sid)
+        elif agent_type == "gmail":
+            response = await asyncio.to_thread(handle_gmail_command, command)
+        elif agent_type == "calendar":
+            response = await asyncio.to_thread(handle_calendar_command, command)
+        elif agent_type == "spotify":
+            response = await asyncio.to_thread(handle_spotify_command, command)
+            # Emit updated now-playing for the Spotify widget
+            await sio.emit('spotify_update', {'command': command}, room=sid)
+        elif agent_type == "translation":
+            response = await asyncio.to_thread(translate_command, command)
+        elif agent_type == "github":
+            response = await asyncio.to_thread(handle_github_command, command)
+        elif agent_type == "proactive":
+            response = await asyncio.to_thread(trigger_morning_briefing)
+        else:
+            response = chat_response(command, sid)
     except Exception as e:
         response = f"Raj, I encountered a critical error: {e}"
 

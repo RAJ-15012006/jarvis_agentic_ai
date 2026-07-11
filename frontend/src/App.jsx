@@ -14,6 +14,9 @@ import { DocumentAnalysis } from './components/DocumentAnalysis';
 import { GenderDetection } from './components/GenderDetection';
 import { ConsentModal } from './components/ConsentModal';
 import { BiometricsDashboard } from './components/BiometricsDashboard';
+import { SpotifyWidget } from './components/SpotifyWidget';
+import { GitHubStatsWidget } from './components/GitHubStatsWidget';
+import { EmotionWidget } from './components/EmotionWidget';
 import jarvisAvatar from './assets/jarvis_avatar.jpg';
 
 const socket = io(window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin, { autoConnect: false, auth: { token: 'jarvis-local-secret' } });
@@ -538,9 +541,11 @@ function JarvisApp() {
   const [liveTranscript, setLiveTranscript] = useState('> Click anywhere to activate mic...');
   const [textInput, setTextInput] = useState('');
   const [showConsent, setShowConsent] = useState(true);
-  const [rightPanel, setRightPanel] = useState('docs'); // 'docs' | 'biometrics'
+  const [rightPanel, setRightPanel] = useState('docs');   // 'docs' | 'biometrics'
+  const [leftPanel, setLeftPanel] = useState('activity'); // 'activity' | 'spotify' | 'emotion' | 'github'
   const [voiceScore, setVoiceScore] = useState(null);
   const [faceScore, setFaceScore] = useState(null);
+  const [proactiveMsg, setProactiveMsg] = useState(null);
 
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
@@ -614,6 +619,19 @@ function JarvisApp() {
       setRightPanel('biometrics'); // auto-switch to biometrics panel
     });
 
+    // Proactive message polling — check every 30s for JARVIS-initiated messages
+    const proactivePoll = setInterval(async () => {
+      try {
+        const res = await fetch('/api/proactive-poll');
+        const data = await res.json();
+        if (data.has_message && data.message) {
+          setProactiveMsg(data.message);
+          setLogs(prev => [{ time: new Date().toLocaleTimeString(), type: 'jarvis', message: `💬 ${data.message}` }, ...prev].slice(0, 50));
+          // Auto-dismiss after 30 seconds
+          setTimeout(() => setProactiveMsg(null), 30000);
+        }
+      } catch { /* silent */ }
+    }, 30000);
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -692,6 +710,7 @@ function JarvisApp() {
       commandRecorderRef.current.stop();
       window.removeEventListener('click', handleClick);
       socket.disconnect();
+      clearInterval(proactivePoll);
     };
   }, [showConsent]);
 
@@ -790,6 +809,33 @@ function JarvisApp() {
 
           {/* Bottom Row */}
           <div className="flex flex-col gap-3">
+
+            {/* Proactive message banner */}
+            {proactiveMsg && (
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(0,212,255,0.12), rgba(123,47,255,0.1))',
+                border: '1px solid rgba(0,212,255,0.3)',
+                borderRadius: '10px',
+                padding: '10px 16px',
+                color: '#00d4ff',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                pointer: 'auto',
+                animation: 'fadeIn 0.4s ease',
+                maxWidth: '700px',
+                margin: '0 auto',
+              }}>
+                <span>💬 JARVIS: {proactiveMsg}</span>
+                <button onClick={() => setProactiveMsg(null)} style={{
+                  background: 'transparent', border: 'none', color: 'rgba(0,212,255,0.5)',
+                  cursor: 'pointer', fontSize: '14px', marginLeft: '12px',
+                }}>✕</button>
+              </div>
+            )}
+
             {/* Text Command Input */}
             <div className="pointer-events-auto flex justify-center">
               <div className="flex items-center gap-2 bg-black/60 border border-jarvis-cyan/40 rounded-lg px-3 py-2 w-full max-w-2xl">
@@ -813,9 +859,39 @@ function JarvisApp() {
 
             {/* Bottom Panels */}
             <div className="flex justify-between items-end w-full">
-              <div className="w-80 pointer-events-auto">
-                <ActivityMonitor state={activityState} transcript={liveTranscript} />
+
+              {/* Left Panel — Tabbed (Activity / Spotify / Emotion / GitHub) */}
+              <div className="pointer-events-auto" style={{ width: '22rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {/* Tab bar */}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {[
+                    { key: 'activity', icon: '📡', label: 'ACTIVITY' },
+                    { key: 'spotify',  icon: '🎵', label: 'SPOTIFY' },
+                    { key: 'emotion',  icon: '🎭', label: 'EMOTION' },
+                    { key: 'github',   icon: '🐙', label: 'GITHUB' },
+                  ].map(tab => (
+                    <button key={tab.key} onClick={() => setLeftPanel(tab.key)}
+                      style={{
+                        flex: 1, padding: '4px 0', borderRadius: '6px',
+                        border: `1px solid ${leftPanel === tab.key ? 'rgba(0,212,255,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                        background: leftPanel === tab.key ? 'rgba(0,212,255,0.1)' : 'transparent',
+                        color: leftPanel === tab.key ? '#00d4ff' : 'rgba(255,255,255,0.3)',
+                        fontSize: '8px', fontWeight: '700', letterSpacing: '1px',
+                        cursor: 'pointer', transition: 'all 0.2s',
+                        fontFamily: 'monospace',
+                      }}
+                    >{tab.icon} {tab.label}</button>
+                  ))}
+                </div>
+                {/* Tab content */}
+                <div style={{ maxHeight: '260px', overflowY: 'auto', scrollbarWidth: 'thin' }}>
+                  {leftPanel === 'activity' && <ActivityMonitor state={activityState} transcript={liveTranscript} />}
+                  {leftPanel === 'spotify'  && <SpotifyWidget socket={socket} />}
+                  {leftPanel === 'emotion'  && <EmotionWidget socket={socket} />}
+                  {leftPanel === 'github'   && <GitHubStatsWidget socket={socket} />}
+                </div>
               </div>
+
               <div className="flex-1 px-8 pointer-events-auto flex justify-center pb-2">
                 <GreetingCard />
               </div>
