@@ -97,6 +97,12 @@ async def execute_global_command(command: str):
     # Interrupt any active speech
     interrupt()
     
+    # Check for immediate STOP/MUTE commands
+    if command.lower().strip() in ["stop", "stop speaking", "be quiet", "shut up", "mute"]:
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Muted."})
+        await sio.emit('activity_state', {'state': 'STANDBY'})
+        return
+        
     # Broadcast command to all connected frontend clients so the log updates
     await sio.emit('system_log', {'time': now, 'type': 'user', 'message': f"[Voice] {command}"})
     await sio.emit('activity_state', {'state': 'PROCESSING'})
@@ -667,6 +673,13 @@ async def process_command(sid, data):
                 print(f"[VOICE AUTH] Raj verified successfully (Similarity: {score:.2f})")
         except Exception as e:
             print(f"[VOICE AUTH ERROR]: Verification failed, ignoring. {e}")
+
+    # ── STOP/MUTE FAST-PATH ─────────────────────────────────────────────────
+    if raw_command.lower().strip() in ["stop", "stop speaking", "be quiet", "shut up", "mute"]:
+        interrupt()
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Muted."}, room=sid)
+        await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+        return
 
     # ── SECURITY FAST-PATH ─────────────────────────────────────────────────
     # Checked BEFORE sanitization, rate-limiting, or any routing.
