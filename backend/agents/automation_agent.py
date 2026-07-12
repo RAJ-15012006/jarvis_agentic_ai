@@ -130,9 +130,10 @@ def _open_all_github_repos() -> str:
     except Exception as e:
         return f"Raj, couldn't fetch GitHub repos: {str(e)}"
 
-def _open_and_wait(url, wait=2):
+def _open_and_wait(url, wait=2, backend_open=True):
     url = _safe_url(url)  # validate URL scheme before opening
-    webbrowser.open(url)  # Actually open the URL in the default browser
+    if backend_open:
+        webbrowser.open(url)  # Actually open the URL in the default browser
     time.sleep(wait)
 
 def _close_tab_by_name(site_name: str) -> str:
@@ -985,7 +986,7 @@ def execute_automation(command: str) -> str:
                 matched_url = next((v for k, v in known.items() if k == site or site.startswith(k)), None)
             
             if matched_url:
-                _open_and_wait(matched_url)
+                _open_and_wait(matched_url, backend_open=False)
                 return f"Opening {site.strip()}, Raj.", matched_url
             else:
                 # Try as a direct URL
@@ -999,7 +1000,7 @@ def execute_automation(command: str) -> str:
                     url = clean_site
                 else:
                     url = f"https://www.{clean_site}"
-                _open_and_wait(url)
+                _open_and_wait(url, backend_open=False)
                 return f"Opening {site.strip()}, Raj.", url
 
         # --- Google / Generic Search ---
@@ -1014,9 +1015,9 @@ def execute_automation(command: str) -> str:
                     break
             if query:
                 url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-                _open_and_wait(url, wait=2)
+                _open_and_wait(url, wait=2, backend_open=False)
                 return f"Raj, searching Google for '{query}'.", url
-            _open_and_wait("https://www.google.com", wait=2)
+            _open_and_wait("https://www.google.com", wait=2, backend_open=False)
             return "Opening Google, Raj.", "https://www.google.com"
 
         # --- LinkedIn ---
@@ -1028,9 +1029,9 @@ def execute_automation(command: str) -> str:
                     break
             if person and person not in ["my", "mine", "raj"]:
                 url = f"https://www.linkedin.com/search/results/people/?keywords={person.replace(' ', '%20')}"
-                _open_and_wait(url)
+                _open_and_wait(url, backend_open=False)
                 return f"Searching LinkedIn for {person}, Raj.", url
-            _open_and_wait(PROFILES["linkedin"])
+            _open_and_wait(PROFILES["linkedin"], backend_open=False)
             return "Opening your LinkedIn profile, Raj.", PROFILES["linkedin"]
 
         # --- GitHub ---
@@ -1048,14 +1049,14 @@ def execute_automation(command: str) -> str:
                     break
             if repo_name:
                 url = f"https://github.com/RAJ-15012006/{repo_name.replace(' ', '-')}"
-                _open_and_wait(url)
+                _open_and_wait(url, backend_open=False)
                 return f"Opening {repo_name} repo on GitHub, Raj.", url
-            _open_and_wait(PROFILES["github"])
+            _open_and_wait(PROFILES["github"], backend_open=False)
             return "Opening your GitHub profile, Raj.", PROFILES["github"]
 
         # --- Portfolio ---
         elif "portfolio" in cmd:
-            _open_and_wait(PROFILES["portfolio"])
+            _open_and_wait(PROFILES["portfolio"], backend_open=False)
             return "Opening your portfolio, Raj.", PROFILES["portfolio"]
 
         # --- AI Assistants: ChatGPT, Gemini, Claude ---
@@ -1105,13 +1106,13 @@ def execute_automation(command: str) -> str:
                 if is_search:
                     # Open YouTube search results page
                     url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
-                    _open_and_wait(url, wait=2)
+                    _open_and_wait(url, wait=2, backend_open=False)
                     return f"Raj, showing YouTube search results for '{query}'.", url
                 else:
                     # Autoplay first result
                     pywhatkit.playonyt(query)
                     return f"Playing {query} on YouTube, Raj."
-            _open_and_wait("https://www.youtube.com")
+            _open_and_wait("https://www.youtube.com", backend_open=False)
             return "Opening YouTube, Raj.", "https://www.youtube.com"
 
         # --- Play song ---
@@ -1134,7 +1135,7 @@ def execute_automation(command: str) -> str:
 
             if person:
                 return _whatsapp_action(person, message or "", action)
-            _open_and_wait("https://web.whatsapp.com/", wait=12)
+            _open_and_wait("https://web.whatsapp.com/", wait=12, backend_open=False)
             return "Opening WhatsApp Web, Raj.", "https://web.whatsapp.com/"
 
         # --- Instagram ---
@@ -1162,7 +1163,7 @@ def execute_automation(command: str) -> str:
                 # Open Instagram profile directly by exact username
                 slug = username.replace(" ", "").replace("of", "").strip()
                 url = f"https://www.instagram.com/{slug}/"
-                _open_and_wait(url, wait=3)
+                _open_and_wait(url, wait=3, backend_open=False)
                 return f"Raj, opening Instagram profile of {username}.", url
 
             # DM flow
@@ -1171,7 +1172,7 @@ def execute_automation(command: str) -> str:
 
             # Plain open — just open your profile
             url = "https://www.instagram.com/rajsamrendrakumar/"
-            _open_and_wait(url)
+            _open_and_wait(url, backend_open=False)
             return "Opening your Instagram, Raj.", url
 
         # --- Google Search ---

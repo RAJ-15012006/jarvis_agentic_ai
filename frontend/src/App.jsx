@@ -694,6 +694,7 @@ function JarvisApp() {
     });
 
     socket.on('open_tab', (data) => {
+      if (data.backend_opened) return; // Prevent double opening since backend handled it
       const newWin = window.open(data.url, '_blank');
       if (!newWin || newWin.closed || typeof newWin.closed === 'undefined') {
         setLogs(prev => [{

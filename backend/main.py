@@ -179,7 +179,9 @@ async def execute_global_command(command: str):
     await sio.emit('activity_state', {'state': 'SPEAKING'})
     await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': response})
     if tab_url:
-        await sio.emit('open_tab', {'url': tab_url})
+        import webbrowser
+        webbrowser.open(tab_url)
+        await sio.emit('open_tab', {'url': tab_url, 'backend_opened': True})
     
     await asyncio.to_thread(speak_text, response)
     await sio.emit('activity_state', {'state': 'STANDBY'})
