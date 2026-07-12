@@ -132,7 +132,7 @@ def _open_all_github_repos() -> str:
 
 def _open_and_wait(url, wait=2):
     url = _safe_url(url)  # validate URL scheme before opening
-    webbrowser.open(url)
+    webbrowser.open(url)  # Actually open the URL in the default browser
     time.sleep(wait)
 
 def _close_tab_by_name(site_name: str) -> str:
@@ -164,23 +164,29 @@ def _close_tab_by_name(site_name: str) -> str:
 
     try:
         if sys.platform == "darwin":
-            # Focus Google Chrome via AppleScript on Mac
-            os.system("osascript -e 'tell application \"Google Chrome\" to activate'")
-            time.sleep(1)
-            # Open Chrome tab search with Command+Shift+A
-            pyautogui.hotkey('command', 'shift', 'a')
-            time.sleep(1.2)
-            # Clear any existing text and type keyword
-            pyautogui.hotkey('command', 'a')
-            time.sleep(0.2)
-            pyautogui.typewrite(keyword, interval=0.1)
-            time.sleep(1.5)  # wait for results to appear
-            # Press Enter to switch to first matching tab
-            pyautogui.press('enter')
-            time.sleep(1)
-            # Close that tab with Command+W
-            pyautogui.hotkey('command', 'w')
-            time.sleep(0.5)
+            if site_name.lower() == "current":
+                # Close the active tab directly via AppleScript
+                os.system("osascript -e 'tell application \"Google Chrome\" to close active tab of front window'")
+                return "Closed the current tab, Raj."
+            
+            # Close matching tab(s) by title/URL using AppleScript
+            script = f"""
+            tell application "Google Chrome"
+                repeat with w in windows
+                    set tabIndex to 1
+                    repeat while tabIndex <= (count of tabs of w)
+                        set t to tab tabIndex of w
+                        if (title of t contains "{keyword}") or (URL of t contains "{keyword}") then
+                            close t
+                        else
+                            set tabIndex to tabIndex + 1
+                        end if
+                    end repeat
+                end repeat
+            end tell
+            """
+            import subprocess
+            subprocess.run(['osascript', '-e', script])
             return f"Closed {site_name} tab, Raj."
         else:
             if gw is None:
@@ -468,83 +474,166 @@ def _focus_chrome() -> bool:
         return False
 
 
-def _chrome_nav(command: str) -> str:
+def _system_scroll(direction: str, clicks: int = 10):
     """
-    Execute in-page / tab navigation commands in Chrome via keyboard shortcuts.
-    Supported: scroll, go back/forward, refresh, zoom, new tab, find, read URL, tab switch.
-    Returns a response string, or None if command is not recognised.
+    Universal scroll that works on ANY window currently under the mouse / in focus.
+    Moves the mouse to the center of the screen then scrolls up or down.
+    Uses pyautogui.scroll() — positive = up, negative = down on macOS.
+    Also falls back to Page Up / Page Down keystroke for apps that ignore scroll events.
+    """
+    IS_MAC = sys.platform == "darwin"
+    try:
+        # Get screen center
+        screen_w, screen_h = pyautogui.size()
+        cx, cy = screen_w // 2, screen_h // 2
+
+        # Move to center of screen so scroll goes to the right window
+        pyautogui.moveTo(cx, cy, duration=0.1)
+        time.sleep(0.05)
+
+        if direction == "up":
+            pyautogui.scroll(clicks)          # positive = scroll up
+            # Fallback keystroke for PDF viewers / VS Code
+            if IS_MAC:
+                os.system("osascript -e 'tell application \"System Events\" to key code 126 using {option down}'")
+            else:
+                pyautogui.press('pageup')
+        else:
+            pyautogui.scroll(-clicks)         # negative = scroll down
+            if IS_MAC:
+                os.system("osascript -e 'tell application \"System Events\" to key code 125 using {option down}'")
+            else:
+                pyautogui.press('pagedown')
+    except Exception:
+        pass
+
+
+def _system_click(x=None, y=None, button='left', clicks=1):
+    """
+    Universal click that works on ANY window.
+    If x,y not given, clicks at the current mouse position.
+    button: 'left', 'right', 'middle'
+    clicks: 1 = single click, 2 = double click
+    """
+    try:
+        if x is None or y is None:
+            # Click at wherever mouse currently is
+            pos = pyautogui.position()
+            x, y = pos.x, pos.y
+        if clicks == 2:
+            pyautogui.doubleClick(x, y)
+        elif button == 'right':
+            pyautogui.rightClick(x, y)
+        else:
+            pyautogui.click(x, y)
+        time.sleep(0.1)
+    except Exception:
+        pass
+
+
+def _chrome_nav(command: str):
+    """
+    Execute navigation commands on the ACTIVE system window — works on any app:
+    PDF viewers, VS Code, Chrome, Finder, etc.
+    Returns a response tuple, or None if command is not recognised.
     """
     cmd = command.lower().strip()
 
     IS_MAC = sys.platform == "darwin"
     mod = 'command' if IS_MAC else 'ctrl'
 
-    # --- Scroll commands ---
-    if any(p in cmd for p in ["scroll down", "scroll the page down", "page down", "go down"]):
-        # Perform scroll on currently active window (allows scrolling Chrome, Safari, Preview, PDFs)
-        amount = 5
-        for _ in range(amount):
-            pyautogui.press('pagedown')
-        return "Scrolled down, Raj."
+    # --- Extract optional repeat count e.g. "scroll 5 times" ---
+    import re as _re
+    count_match = _re.search(r'(\d+)\s*times?', cmd)
+    scroll_count = int(count_match.group(1)) if count_match else 1
 
-    elif any(p in cmd for p in ["scroll up", "scroll the page up", "page up", "go up"]):
-        amount = 5
-        for _ in range(amount):
-            pyautogui.press('pageup')
-        return "Scrolled up, Raj."
+    # Determine scroll direction
+    is_scroll_up   = any(p in cmd for p in ["scroll up", "page up", "go up"]) or ("scroll" in cmd and "up" in cmd)
+    is_scroll_down = any(p in cmd for p in ["scroll down", "page down", "go down", "scroll"]) or ("scroll" in cmd and "down" in cmd)
+
+    # --- Universal Scroll — works on ANY window (PDF, VS Code, Chrome, etc.) ---
+    if is_scroll_up:
+        for _ in range(scroll_count):
+            _system_scroll("up", clicks=10)
+            time.sleep(0.1)
+        return "Scrolled up, Raj.", "scroll_tab", {"direction": "up", "amount": 600}
+
+    elif is_scroll_down:
+        for _ in range(scroll_count):
+            _system_scroll("down", clicks=10)
+            time.sleep(0.1)
+        return "Scrolled down, Raj.", "scroll_tab", {"direction": "down", "amount": 600}
 
     elif any(p in cmd for p in ["scroll to top", "go to top", "top of page", "beginning of page"]):
-        pyautogui.hotkey('ctrl', 'home') if not IS_MAC else pyautogui.hotkey('command', 'up')
-        return "Scrolled to the top of the page, Raj."
+        if IS_MAC:
+            os.system("osascript -e 'tell application \"System Events\" to key code 115'")
+        else:
+            pyautogui.hotkey('ctrl', 'home')
+        return "Scrolled to the top, Raj.", "execute_in_tab", {"code": "window.scrollTo({ top: 0, behavior: 'smooth' });"}
 
     elif any(p in cmd for p in ["scroll to bottom", "go to bottom", "bottom of page", "end of page"]):
-        pyautogui.hotkey('ctrl', 'end') if not IS_MAC else pyautogui.hotkey('command', 'down')
-        return "Scrolled to the bottom of the page, Raj."
+        if IS_MAC:
+            os.system("osascript -e 'tell application \"System Events\" to key code 119'")
+        else:
+            pyautogui.hotkey('ctrl', 'end')
+        return "Scrolled to the bottom, Raj.", "execute_in_tab", {"code": "window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });"}
 
     # --- Back / Forward ---
     elif any(p in cmd for p in ["go back", "previous page", "back page"]):
-        pyautogui.hotkey(mod, 'left')
-        return "Going back, Raj."
+        if IS_MAC:
+            os.system("osascript -e 'tell application \"Google Chrome\" to go back active tab of front window'")
+        else:
+            pyautogui.hotkey(mod, 'left')
+        return "Going back, Raj.", "execute_in_tab", {"code": "window.history.back();"}
 
     elif any(p in cmd for p in ["go forward", "next page", "forward page"]):
-        pyautogui.hotkey(mod, 'right')
-        return "Going forward, Raj."
+        if IS_MAC:
+            os.system("osascript -e 'tell application \"Google Chrome\" to go forward active tab of front window'")
+        else:
+            pyautogui.hotkey(mod, 'right')
+        return "Going forward, Raj.", "execute_in_tab", {"code": "window.history.forward();"}
 
     # --- Refresh ---
     elif any(p in cmd for p in ["refresh", "reload", "refresh the page", "reload page"]):
-        pyautogui.hotkey(mod, 'r')
-        return "Refreshed the page, Raj."
+        if IS_MAC:
+            os.system("osascript -e 'tell application \"Google Chrome\" to reload active tab of front window'")
+        else:
+            pyautogui.hotkey(mod, 'r')
+        return "Refreshed the page, Raj.", "execute_in_tab", {"code": "window.location.reload();"}
 
     # --- New tab ---
     elif any(p in cmd for p in ["new tab", "open new tab", "open a tab"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
-        pyautogui.hotkey(mod, 't')
-        return "Opened a new tab, Raj."
+        if IS_MAC:
+            os.system("osascript -e 'tell application \"Google Chrome\" to tell front window to make new tab'")
+        else:
+            if not _focus_chrome():
+                return "Raj, Chrome is not open.", None, None
+            pyautogui.hotkey(mod, 't')
+        return "Opened a new tab, Raj.", "open_tab", {"url": "https://www.google.com"}
 
     # --- Zoom in / out / reset ---
     elif any(p in cmd for p in ["zoom in", "make bigger", "increase zoom"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         pyautogui.hotkey(mod, '+')
-        return "Zoomed in, Raj."
+        return "Zoomed in, Raj.", None, None
 
     elif any(p in cmd for p in ["zoom out", "make smaller", "decrease zoom"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         pyautogui.hotkey(mod, '-')
-        return "Zoomed out, Raj."
+        return "Zoomed out, Raj.", None, None
 
     elif any(p in cmd for p in ["reset zoom", "normal zoom", "zoom 100"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         pyautogui.hotkey(mod, '0')
-        return "Zoom reset to 100%, Raj."
+        return "Zoom reset to 100%, Raj.", None, None
 
     # --- Find on page ---
     elif any(p in cmd for p in ["find on page", "search on page", "ctrl f", "find text"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         # Extract search term
         search_term = ""
         for kw in ["find on page", "search on page", "find text", "find"]:
@@ -557,14 +646,14 @@ def _chrome_nav(command: str) -> str:
         time.sleep(0.5)
         if search_term:
             pyautogui.typewrite(_safe_typewrite(search_term), interval=0.08)
-            return f"Searching for '{search_term}' on the current page, Raj."
-        return "Find bar opened, Raj. What should I search for?"
+            return f"Searching for '{search_term}' on the current page, Raj.", None, None
+        return "Find bar opened, Raj. What should I search for?", None, None
 
     # --- Read current page URL ---
     elif any(p in cmd for p in ["what page", "what site", "what url", "current url",
                                   "read url", "where am i"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         # Focus address bar, select all, copy
         pyautogui.hotkey(mod, 'l')
         time.sleep(0.4)
@@ -577,45 +666,240 @@ def _chrome_nav(command: str) -> str:
             result = subprocess.run(['pbpaste'], capture_output=True, text=True)
             url = result.stdout.strip()
             if url:
-                return f"You are currently on: {url}"
+                return f"You are currently on: {url}", None, None
         except Exception:
             pass
-        return "Raj, I couldn't read the current URL — try asking Chrome directly."
+        return "Raj, I couldn't read the current URL — try asking Chrome directly.", None, None
 
     # --- Next/Previous Chrome tab ---
     elif any(p in cmd for p in ["next tab", "switch tab", "tab right"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         pyautogui.hotkey(mod, 'tab')
-        return "Switched to the next tab, Raj."
+        return "Switched to the next tab, Raj.", None, None
 
     elif any(p in cmd for p in ["previous tab", "tab left", "last tab"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         pyautogui.hotkey(mod, 'shift', 'tab')
-        return "Switched to the previous tab, Raj."
+        return "Switched to the previous tab, Raj.", None, None
 
-    # --- Click / Press Enter ---
-    elif any(p in cmd for p in ["click", "press enter", "hit enter", "submit"]):
-        if not _focus_chrome():
-            return "Raj, Chrome is not open."
+    # --- Universal Click Commands — works on ANY window ---
+    elif any(p in cmd for p in ["double click", "double-click"]):
+        screen_w, screen_h = pyautogui.size()
+        _system_click(screen_w // 2, screen_h // 2, clicks=2)
+        return "Double-clicked, Raj.", None, None
+
+    elif any(p in cmd for p in ["right click", "right-click", "context menu"]):
+        screen_w, screen_h = pyautogui.size()
+        _system_click(screen_w // 2, screen_h // 2, button='right')
+        return "Right-clicked, Raj.", None, None
+
+    elif any(p in cmd for p in [
+        "click the link above", "click above link", "open that link",
+        "open the link above", "click above", "open above"
+    ]):
+        # Move mouse up from center and click — targets visible links above current scroll position
+        screen_w, screen_h = pyautogui.size()
+        cx, cy = screen_w // 2, int(screen_h * 0.35)   # upper third of screen
+        pyautogui.moveTo(cx, cy, duration=0.2)
+        time.sleep(0.1)
+        _system_click(cx, cy)
+        return "Clicked the link above, Raj.", "execute_in_tab", {
+            "code": "const links=document.querySelectorAll('a');const vis=[...links].filter(l=>{const r=l.getBoundingClientRect();return r.top>0&&r.top<window.innerHeight/2;});if(vis.length)vis[0].click();"
+        }
+
+    elif any(p in cmd for p in [
+        "click", "click here", "press enter", "hit enter",
+        "open link", "open the link", "click the link",
+        "click this", "select this", "click that"
+    ]):
+        # Click at current mouse position — works on any element in any app
+        _system_click()
+        # Also press Enter in case a keyboard-focused element is active
+        time.sleep(0.05)
         pyautogui.press('enter')
-        return "Clicked / pressed Enter, Raj."
+        click_code = """
+        const active = document.activeElement;
+        if (active && active !== document.body) {
+            active.click();
+        } else {
+            const firstLink = document.querySelector('a:hover, button:hover, [role="button"]');
+            if (firstLink) firstLink.click();
+        }
+        """
+        return "Clicked, Raj.", "execute_in_tab", {"code": click_code}
 
     # --- Fullscreen ---
     elif any(p in cmd for p in ["fullscreen", "full screen", "maximize browser"]):
         if not _focus_chrome():
-            return "Raj, Chrome is not open."
+            return "Raj, Chrome is not open.", None, None
         pyautogui.press('f11') if not IS_MAC else pyautogui.hotkey('ctrl', 'command', 'f')
-        return "Toggled fullscreen, Raj."
+        return "Toggled fullscreen, Raj.", None, None
 
     # Not a navigation command
     return None
 
 
+def _find_recent_downloaded_pdf():
+    downloads_dir = os.path.expanduser("~/Downloads")
+    if not os.path.exists(downloads_dir):
+        return None
+    pdf_files = []
+    try:
+        for f in os.listdir(downloads_dir):
+            if f.lower().endswith(".pdf"):
+                full_path = os.path.join(downloads_dir, f)
+                if os.path.isfile(full_path):
+                    pdf_files.append((full_path, os.path.getmtime(full_path)))
+    except Exception:
+        return None
+    if not pdf_files:
+        return None
+    pdf_files.sort(key=lambda x: x[1], reverse=True)
+    return pdf_files[0][0]
+
+def _open_mac_app(app_name: str) -> str:
+    """Open any macOS application by name using 'open -a'. Most reliable method on Mac."""
+    try:
+        result = subprocess.run(["open", "-a", app_name], capture_output=True, text=True)
+        if result.returncode == 0:
+            return f"Opening {app_name}, Raj."
+        else:
+            return f"Raj, I couldn't find {app_name} on your Mac."
+    except Exception as e:
+        return f"Raj, error opening {app_name}: {str(e)}"
+
+
+# Map of voice keywords → exact macOS app names
+MAC_APPS = {
+    # Browsers
+    "google chrome":      "Google Chrome",
+    "chrome":             "Google Chrome",
+    "safari":             "Safari",
+    "firefox":            "Firefox",
+    # Camera / Media
+    "photo booth":        "Photo Booth",
+    "photo hood":         "Photo Booth",   # voice mis-recognition
+    "phone hood":         "Photo Booth",   # voice mis-recognition
+    "phonebooth":         "Photo Booth",
+    "camera":             "Photo Booth",   # 'open camera' → Photo Booth
+    "image capture":      "Image Capture",
+    "quicktime":          "QuickTime Player",
+    "vlc":                "VLC",
+    "iMovie":             "iMovie",
+    # Photos / Gallery
+    "photos":             "Photos",
+    "gallery":            "Photos",        # 'open gallery' → Photos
+    "photo library":      "Photos",
+    "pictures app":       "Photos",
+    # Music / Podcasts
+    "music":              "Music",
+    "podcasts":           "Podcasts",
+    "tv":                 "TV",
+    # Productivity
+    "vs code":            "Visual Studio Code",
+    "vscode":             "Visual Studio Code",
+    "visual studio code": "Visual Studio Code",
+    "xcode":              "Xcode",
+    "terminal":           "Terminal",
+    "iterm":              "iTerm",
+    "notes":              "Notes",
+    "reminders":          "Reminders",
+    "calendar":           "Calendar",
+    "mail":               "Mail",
+    "messages":           "Messages",
+    "facetime":           "FaceTime",
+    "maps":               "Maps",
+    "contacts":           "Contacts",
+    "clock":              "Clock",
+    "calculator":         "Calculator",
+    "preview":            "Preview",
+    "pages":              "Pages",
+    "numbers":            "Numbers",
+    "keynote":            "Keynote",
+    "automator":          "Automator",
+    "shortcuts":          "Shortcuts",
+    # System
+    "finder":             "Finder",
+    "system settings":    "System Settings",
+    "system preferences": "System Preferences",
+    "settings":           "System Settings",
+    "activity monitor":   "Activity Monitor",
+    "disk utility":       "Disk Utility",
+    "app store":          "App Store",
+    "airdrop":            "AirDrop",
+    "bluetooth":          "Bluetooth",
+    "screen recorder":    "QuickTime Player",
+    # Design / Dev
+    "figma":              "Figma",
+    "sketch":             "Sketch",
+    "notion":             "Notion",
+    "slack":              "Slack",
+    "zoom":               "Zoom",
+    "discord":            "Discord",
+    "whatsapp":           "WhatsApp",
+    "telegram":           "Telegram",
+    "spotify":            "Spotify",
+    "cursor":             "Cursor",
+}
+
+# Folders that open directly in Finder
+FOLDERS = {
+    "downloads":  os.path.expanduser("~/Downloads"),
+    "download":   os.path.expanduser("~/Downloads"),
+    "desktop":    os.path.expanduser("~/Desktop"),
+    "documents":  os.path.expanduser("~/Documents"),
+    "pictures":   os.path.expanduser("~/Pictures"),
+    "movies":     os.path.expanduser("~/Movies"),
+    "music folder": os.path.expanduser("~/Music"),
+    "home":       os.path.expanduser("~"),
+    "applications": "/Applications",
+}
+
+
 def execute_automation(command: str) -> str:
     cmd = command.lower().strip()
     try:
+
+        # ── Folder opener — opens Downloads, Desktop, Documents etc. in Finder ──
+        if any(kw in cmd for kw in ["open", "show", "go to"]):
+            for folder_key, folder_path in FOLDERS.items():
+                if folder_key in cmd:
+                    subprocess.Popen(["open", folder_path])
+                    return f"Opening {folder_key.capitalize()} folder, Raj."
+
+        # ── macOS App Launcher (checked FIRST — highest priority) ────────────────
+        if any(kw in cmd for kw in ["open", "launch", "start", "run"]):
+            for keyword, app_name in MAC_APPS.items():
+                if keyword in cmd:
+                    # Skip website-like keywords that need browser handling
+                    if keyword in ["spotify", "whatsapp"] and "web" not in cmd:
+                        result = _open_mac_app(app_name)
+                        if "couldn't find" not in result:
+                            return result
+                        # Fall through to web handler if app not installed
+                    elif keyword not in ["spotify", "whatsapp"]:
+                        return _open_mac_app(app_name)
+
+        # --- Open Downloaded PDF in Chrome ---
+        if "pdf" in cmd and any(k in cmd for k in ["download", "open", "recent"]):
+            pdf_path = _find_recent_downloaded_pdf()
+            if not pdf_path:
+                return "Raj, I couldn't find any PDF files in your Downloads folder."
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Google Chrome", pdf_path])
+            else:
+                import urllib.parse
+                file_url = f"file://{urllib.parse.quote(pdf_path)}"
+                webbrowser.open(file_url)
+            return f"Opening your most recent downloaded PDF ({os.path.basename(pdf_path)}) in Google Chrome, Raj."
+
+        # --- Open JARVIS itself ---
+        if "open jarvis" in cmd or "launch jarvis" in cmd:
+            _focus_chrome()
+            _open_and_wait("http://127.0.0.1:8000")
+            return "Opening my interface, Sir.", "http://127.0.0.1:8000"
 
         # --- Open VS Code ---
         if "open vs code" in cmd or "open vscode" in cmd or "launch vs code" in cmd:
@@ -639,11 +923,12 @@ def execute_automation(command: str) -> str:
             return "Raj, I couldn't find a matching tab to close."
 
         # --- Open any website ---
-        elif "open" in cmd and ("website" in cmd or "site" in cmd or "page" in cmd):
+        elif "open" in cmd and "search" not in cmd and not any(app in cmd for app in ["vs code", "vscode", "linkedin", "github", "git hub", "portfolio", "chatgpt", "chat gpt", "gpt", "gemini", "claude", "youtube", "whatsapp", "instagram", "insta"]):
             # Extract site name
             site = cmd
             for noise in ["open", "website", "site", "page", "the", "please"]:
                 site = site.replace(noise, "").strip()
+            
             # Known sites
             known = {
                 "amazon": "https://www.amazon.in",
@@ -662,19 +947,39 @@ def execute_automation(command: str) -> str:
                 "makemytrip": "https://www.makemytrip.com",
                 "zomato": "https://www.zomato.com",
                 "swiggy": "https://www.swiggy.com",
+                "youtube": "https://www.youtube.com",
+                "linkedin": "https://www.linkedin.com",
+                "github": "https://www.github.com",
+                "instagram": "https://www.instagram.com",
+                "whatsapp": "https://web.whatsapp.com",
+                "spotify": "https://www.spotify.com",
             }
-            matched_url = next((v for k, v in known.items() if k in site), None)
+            
+            # If site name has slashes or ends with standard extensions, it's a direct URL
+            matched_url = None
+            if "/" not in site and not any(site.endswith(ext) for ext in [".com", ".org", ".net", ".in", ".edu", ".io", ".co"]):
+                matched_url = next((v for k, v in known.items() if k == site or site.startswith(k)), None)
+            
             if matched_url:
                 _open_and_wait(matched_url)
-                return f"Opening {site.strip()}, Raj."
+                return f"Opening {site.strip()}, Raj.", matched_url
             else:
                 # Try as a direct URL
-                url = f"https://www.{site.replace(' ', '')}.com"
+                clean_site = site.replace(" ", "")
+                if "." not in clean_site:
+                    clean_site += ".com"
+                
+                if clean_site.startswith("www."):
+                    url = f"https://{clean_site}"
+                elif clean_site.startswith(("http://", "https://")):
+                    url = clean_site
+                else:
+                    url = f"https://www.{clean_site}"
                 _open_and_wait(url)
-                return f"Opening {site.strip()}, Raj."
+                return f"Opening {site.strip()}, Raj.", url
 
         # --- Google / Generic Search ---
-        elif "google" in cmd or any(k in cmd for k in ["search for", "search the web", "look up", "find online"]):
+        elif ("google" in cmd or any(k in cmd for k in ["search for", "search the web", "look up", "find online"]) or "search" in cmd) and not any(app in cmd for app in ["youtube", "linkedin", "github", "git hub", "instagram", "insta", "whatsapp", "chatgpt", "chat gpt", "gpt", "gemini", "claude"]):
             # Extract search query
             query = ""
             for kw in ["search for", "search the web for", "search", "find online", "look up", "find"]:
@@ -686,9 +991,9 @@ def execute_automation(command: str) -> str:
             if query:
                 url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
                 _open_and_wait(url, wait=2)
-                return f"Raj, searching Google for '{query}'."
+                return f"Raj, searching Google for '{query}'.", url
             _open_and_wait("https://www.google.com", wait=2)
-            return "Opening Google, Raj."
+            return "Opening Google, Raj.", "https://www.google.com"
 
         # --- LinkedIn ---
         elif "linkedin" in cmd:
@@ -700,9 +1005,9 @@ def execute_automation(command: str) -> str:
             if person and person not in ["my", "mine", "raj"]:
                 url = f"https://www.linkedin.com/search/results/people/?keywords={person.replace(' ', '%20')}"
                 _open_and_wait(url)
-                return f"Searching LinkedIn for {person}, Raj."
+                return f"Searching LinkedIn for {person}, Raj.", url
             _open_and_wait(PROFILES["linkedin"])
-            return "Opening your LinkedIn profile, Raj."
+            return "Opening your LinkedIn profile, Raj.", PROFILES["linkedin"]
 
         # --- GitHub ---
         elif "github" in cmd or "git hub" in cmd:
@@ -718,15 +1023,16 @@ def execute_automation(command: str) -> str:
                         repo_name = repo_name.replace(noise, "").strip()
                     break
             if repo_name:
-                _open_and_wait(f"https://github.com/RAJ-15012006/{repo_name.replace(' ', '-')}")
-                return f"Opening {repo_name} repo on GitHub, Raj."
+                url = f"https://github.com/RAJ-15012006/{repo_name.replace(' ', '-')}"
+                _open_and_wait(url)
+                return f"Opening {repo_name} repo on GitHub, Raj.", url
             _open_and_wait(PROFILES["github"])
-            return "Opening your GitHub profile, Raj."
+            return "Opening your GitHub profile, Raj.", PROFILES["github"]
 
         # --- Portfolio ---
         elif "portfolio" in cmd:
             _open_and_wait(PROFILES["portfolio"])
-            return "Opening your portfolio, Raj."
+            return "Opening your portfolio, Raj.", PROFILES["portfolio"]
 
         # --- AI Assistants: ChatGPT, Gemini, Claude ---
         elif any(ai in cmd for ai in ["chatgpt", "chat gpt", "gpt", "gemini", "claude"]):
@@ -756,8 +1062,8 @@ def execute_automation(command: str) -> str:
                 pyautogui.typewrite(query, interval=0.07)
                 time.sleep(0.5)
                 pyautogui.press('enter')
-                return f"Raj, asked {ai_label}: '{query}'."
-            return f"Opening {ai_label}, Raj."
+                return f"Raj, asked {ai_label}: '{query}'.", ai_info["url"]
+            return f"Opening {ai_label}, Raj.", ai_info["url"]
 
         # --- YouTube ---
         elif "youtube" in cmd:
@@ -776,13 +1082,13 @@ def execute_automation(command: str) -> str:
                     # Open YouTube search results page
                     url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
                     _open_and_wait(url, wait=2)
-                    return f"Raj, showing YouTube search results for '{query}'."
+                    return f"Raj, showing YouTube search results for '{query}'.", url
                 else:
                     # Autoplay first result
                     pywhatkit.playonyt(query)
                     return f"Playing {query} on YouTube, Raj."
             _open_and_wait("https://www.youtube.com")
-            return "Opening YouTube, Raj."
+            return "Opening YouTube, Raj.", "https://www.youtube.com"
 
         # --- Play song ---
         elif "play" in cmd:
@@ -805,7 +1111,7 @@ def execute_automation(command: str) -> str:
             if person:
                 return _whatsapp_action(person, message or "", action)
             _open_and_wait("https://web.whatsapp.com/", wait=12)
-            return "Opening WhatsApp Web, Raj."
+            return "Opening WhatsApp Web, Raj.", "https://web.whatsapp.com/"
 
         # --- Instagram ---
         elif "instagram" in cmd or "insta" in cmd:
@@ -833,21 +1139,23 @@ def execute_automation(command: str) -> str:
                 slug = username.replace(" ", "").replace("of", "").strip()
                 url = f"https://www.instagram.com/{slug}/"
                 _open_and_wait(url, wait=3)
-                return f"Raj, opening Instagram profile of {username}."
+                return f"Raj, opening Instagram profile of {username}.", url
 
             # DM flow
             if username and is_dm:
                 return _instagram_action(username, message or "")
 
             # Plain open — just open your profile
-            _open_and_wait("https://www.instagram.com/raj.k.18/")
-            return "Opening your Instagram, Raj."
+            url = "https://www.instagram.com/rajsamrendrakumar/"
+            _open_and_wait(url)
+            return "Opening your Instagram, Raj.", url
 
         # --- Google Search ---
         elif "search" in cmd and "google" in cmd:
             query = cmd.split("search")[1].replace("on google", "").strip()
             pywhatkit.search(query)
-            return f"Searching Google for {query}, Raj."
+            url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+            return f"Searching Google for {query}, Raj.", url
 
         # --- Reminders ---
         elif any(word in cmd for word in ["remind", "note", "schedule"]):
@@ -859,6 +1167,12 @@ def execute_automation(command: str) -> str:
             with open(SCHEDULE_FILE, "a") as f:
                 f.write(task + "\n")
             return f"Raj, I have added '{task}' to your schedule."
+
+        # --- Click Screen Element (only when a specific target name is given, not a bare 'click') ---
+        elif cmd.startswith("click ") and len(cmd.split()) > 2 and not any(p in cmd for p in ["click enter", "click here", "click button", "click submit", "click the", "click this", "click that", "click above"]):
+            target = command[6:].strip()
+            from agents.screen_agent import click_screen_element
+            return click_screen_element(target)
 
         # --- Chrome / Webpage Navigation ---
         else:

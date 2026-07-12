@@ -128,9 +128,18 @@ async def execute_global_command(command: str):
     from agents.automation_agent import _chrome_nav
     nav_response = await asyncio.to_thread(_chrome_nav, command)
     if nav_response:
-        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': nav_response})
+        event_name = None
+        event_data = None
+        if isinstance(nav_response, tuple):
+            response, event_name, event_data = nav_response
+        else:
+            response = nav_response
+
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': response})
         await sio.emit('activity_state', {'state': 'SPEAKING'})
-        await asyncio.to_thread(speak_text, nav_response)
+        if event_name:
+            await sio.emit(event_name, event_data)
+        await asyncio.to_thread(speak_text, response)
         await sio.emit('activity_state', {'state': 'STANDBY'})
         return
 
@@ -143,14 +152,19 @@ async def execute_global_command(command: str):
     response = ""
     tab_url = None
     try:
-        if agent_type == "system":       response = execute_system_command(command)
+        if agent_type == "system":       response = await asyncio.to_thread(execute_system_command, command)
         elif agent_type == "web":
-            result = web_search(command)
+            result = await asyncio.to_thread(web_search, command)
             if isinstance(result, tuple):
                 response, tab_url = result
             else:
                 response = result
-        elif agent_type == "automation": response = execute_automation(command)
+        elif agent_type == "automation":
+            result = await asyncio.to_thread(execute_automation, command)
+            if isinstance(result, tuple):
+                response, tab_url = result
+            else:
+                response = result
         elif agent_type == "screen":     response = await asyncio.to_thread(analyze_screen, command)
         elif agent_type == "gmail":      response = await asyncio.to_thread(handle_gmail_command, command)
         elif agent_type == "calendar":   response = await asyncio.to_thread(handle_calendar_command, command)
@@ -448,16 +462,17 @@ async def analyze_gender(file: UploadFile = File(...)):
                         {
                             "type": "text",
                             "text": (
-                                "Analyze this image and determine the gender of the person(s) shown. "
+                                "Analyze this image in detail. "
+                                "Identify what is depicted in the image. If there are people, specify gender or multiplicity. "
+                                "If there are no people, classify the image category (e.g. Object, Scene, Animal, Text). "
                                 "Respond ONLY with a JSON object (no markdown, no extra text) with these exact keys:\n"
                                 "{\n"
-                                "  \"gender\": \"Boy\" or \"Girl\" or \"Multiple\" or \"Unclear\",\n"
-                                "  \"confidence\": \"High\" or \"Medium\" or \"Low\",\n"
-                                "  \"count\": number of people detected (integer),\n"
-                                "  \"description\": \"A brief 1-2 sentence JARVIS-style description for Sir/Raj\",\n"
-                                "  \"details\": [\"list\", \"of\", \"visual\", \"cues\", \"used\"]\n"
+                                "  \"gender\": \"Boy\", \"Girl\", \"Multiple\", \"Object\", \"Scene\", \"Text\", \"Animal\", or \"Unclear\" (representing the primary classification),\n"
+                                "  \"confidence\": \"High\", \"Medium\", or \"Low\",\n"
+                                "  \"count\": number of primary entities/people/objects detected (integer),\n"
+                                "  \"description\": \"A brief 1-2 sentence JARVIS-style description for Sir/Raj detailing what the image contains\",\n"
+                                "  \"details\": [\"list\", \"of\", \"visual\", \"cues\", \"objects\", \"or\", \"features\", \"identified\"]\n"
                                 "}\n"
-                                "If no person is detected, set gender to 'No Person Detected'."
                             )
                         }
                     ]
@@ -605,10 +620,20 @@ def _sanitize_command(command: str) -> tuple[bool, str]:
 @sio.event
 async def connect(sid, environ, auth=None):
     token = (auth or {}).get("token", "")
+    if not token:
+        from urllib.parse import parse_qs
+        query_string = environ.get("QUERY_STRING", "")
+        params = parse_qs(query_string)
+        token = params.get("token", [""])[0]
+
     if token != SOCKET_SECRET:
         print(f"Rejected unauthorized connection: {sid}")
         raise ConnectionRefusedError("Unauthorized")
     print(f"Frontend connected: {sid}")
+
+@sio.event
+async def authenticate(sid, data):
+    print(f"Client {sid} authenticated via event.")
     ist = _get_ist_time()
     hour = ist.hour
     if   hour < 12: greeting = "Good morning, Sir."
@@ -741,7 +766,7 @@ async def process_command(sid, data):
     # Phrases that DISMISS Jarvis
     DISMISS_PHRASES = ["no", "not now", "no thanks", "don't need you", "go away",
                        "dismiss", "no help", "i'm fine", "im fine", "no need",
-                       "not today", "exit", "disable", "stop", "not required"]
+                       "not today", "exit", "disable", "not required"]
     # Phrases that WAKE Jarvis back up
     WAKE_PHRASES    = ["yes", "help", "yeah", "sure", "please", "i need you", "activate",
                        "i need help", "wake up", "wake", "jarvis", "okay", "ok"]
@@ -835,16 +860,31 @@ async def process_command(sid, data):
     await sio.emit('system_log', {'time': now, 'type': 'system', 'message': f"ROUTING TO {agent_name_upper} AGENT"}, room=sid)
 
     response = ""
-    tab_url = None
+    event_name = None
+    event_data = None
     try:
-        if agent_type == "system":       response = execute_system_command(command)
+        if agent_type == "system":       response = await asyncio.to_thread(execute_system_command, command)
         elif agent_type == "web":
-            result = web_search(command)
+            result = await asyncio.to_thread(web_search, command)
             if isinstance(result, tuple):
                 response, tab_url = result
+                if tab_url:
+                    event_name = "open_tab"
+                    event_data = {"url": tab_url}
             else:
                 response = result
-        elif agent_type == "automation": response = execute_automation(command)
+        elif agent_type == "automation":
+            result = await asyncio.to_thread(execute_automation, command)
+            if isinstance(result, tuple):
+                if len(result) == 3:
+                    response, event_name, event_data = result
+                elif len(result) == 2:
+                    response, tab_url = result
+                    if tab_url:
+                        event_name = "open_tab"
+                        event_data = {"url": tab_url}
+            else:
+                response = result
         elif agent_type == "crew":
             topic = command.replace("crew", "").replace("newsletter", "").replace("tech digest", "").replace("weekly digest", "").strip()
             if not topic:
@@ -879,8 +919,8 @@ async def process_command(sid, data):
 
     await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
     await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': response}, room=sid)
-    if tab_url:
-        await sio.emit('open_tab', {'url': tab_url}, room=sid)
+    if event_name:
+        await sio.emit(event_name, event_data)
     # Speak and update UI simultaneously
     await asyncio.gather(
         asyncio.to_thread(speak_text, response),

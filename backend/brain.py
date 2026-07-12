@@ -166,6 +166,10 @@ def route_command(command: str) -> dict:
                                 "push my changes", "open issues", "github activity"]):
         return {"agent": "github", "command": command}
 
+    # Fast-path: Automation (opening profiles, PDFs, and key websites/apps)
+    if "open" in cmd and any(app in cmd for app in ["linkedin", "github", "git hub", "instagram", "insta", "portfolio", "youtube", "whatsapp", "vs code", "vscode", "jarvis", "pdf", "download"]):
+        return {"agent": "automation", "command": command}
+
     # Fast-path: Morning briefing
     if any(p in cmd for p in ["morning briefing", "daily briefing", "brief me", "morning report"]):
         return {"agent": "proactive", "command": command}

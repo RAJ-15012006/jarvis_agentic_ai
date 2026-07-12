@@ -197,6 +197,7 @@ function PasswordGate({ onUnlock }) {
   };
 
   const triggerTouchID = async () => {
+    if (isScanning) return;
     setIsScanning(true);
     setFpStatus('Scanning Touch ID fingerprint pattern...');
     
@@ -682,11 +683,25 @@ function JarvisApp() {
     });
 
     socket.on('image_result', (data) => {
-      window.open(data.url, '_blank');
+      const newWin = window.open(data.url, '_blank');
+      if (!newWin || newWin.closed || typeof newWin.closed === 'undefined') {
+        setLogs(prev => [{
+          time: new Date().toLocaleTimeString(),
+          type: 'system',
+          message: '⚠️ POP-UP BLOCKED: Please click the pop-up blocker icon in your browser URL bar and select "Always allow pop-ups from localhost:8000" to view the generated image.'
+        }, ...prev].slice(0, 50));
+      }
     });
 
     socket.on('open_tab', (data) => {
-      window.open(data.url, '_blank');
+      const newWin = window.open(data.url, '_blank');
+      if (!newWin || newWin.closed || typeof newWin.closed === 'undefined') {
+        setLogs(prev => [{
+          time: new Date().toLocaleTimeString(),
+          type: 'system',
+          message: '⚠️ POP-UP BLOCKED: Please click the pop-up blocker icon in your browser URL bar and select "Always allow pop-ups from localhost:8000" to allow JARVIS to open links.'
+        }, ...prev].slice(0, 50));
+      }
     });
 
     socket.on('activity_state', (data) => {

@@ -30,12 +30,13 @@ done
 # ── Kill any existing Jarvis process ─────────────────────────────────────────
 echo "[*] Stopping any existing Jarvis instance..."
 pkill -f "uvicorn.*main:socket_app" 2>/dev/null || true
+pkill -f "python.*main.py" 2>/dev/null || true
 sleep 1
 
 # ── Start Jarvis backend ──────────────────────────────────────────────────────
 echo "[*] Starting JARVIS backend..."
 cd "$BACKEND_DIR" || exit 1
-"$VENV_PYTHON" -m uvicorn main:socket_app --host 0.0.0.0 --port 8000 --reload false &
+"$VENV_PYTHON" main.py &
 BACKEND_PID=$!
 echo "[✓] Backend PID: $BACKEND_PID"
 

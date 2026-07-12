@@ -5,7 +5,7 @@
  * Routes tab-level commands from Jarvis to the correct Chrome tab.
  */
 
-const JARVIS_WS_URL  = "ws://127.0.0.1:8000/socket.io/?EIO=4&transport=websocket";
+const JARVIS_WS_URL  = "ws://127.0.0.1:8000/socket.io/?EIO=4&transport=websocket&token=jarvis-local-secret";
 const JARVIS_SECRET  = "jarvis-local-secret";
 const RECONNECT_DELAY_MS = 3000;
 

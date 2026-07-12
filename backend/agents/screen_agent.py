@@ -163,3 +163,99 @@ def save_screenshot_with_analysis(command: str) -> tuple:
         return analysis, filepath
     except Exception as e:
         return f"Screenshot failed: {e}", None
+
+
+def click_screen_element(target: str) -> str:
+    """
+    Takes a screenshot, sends it to Groq Vision model to locate 'target',
+    and clicks it using pyautogui.
+    """
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key or api_key == "your_groq_api_key_here":
+        return "Sir, I need a Groq API key to locate elements on your screen."
+
+    try:
+        import pyautogui
+        import json
+        import time
+        from groq import Groq
+        from agents.automation_agent import _focus_chrome
+
+        # Focus Chrome first to ensure the active window is Chrome (per user's request)
+        _focus_chrome()
+        time.sleep(0.8) # Wait for focus and window stabilization
+
+        # Get screen dimensions
+        width, height = pyautogui.size()
+
+        # Capture screen
+        screenshot_bytes = _take_screenshot()
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+
+        prompt = f"""
+        Find the exact location of the text, link, or button '{target}' in this screenshot.
+        Respond ONLY with a JSON object (no markdown, no extra text) with these exact keys:
+        {{
+          "found": true,
+          "x_percent": 25.5,
+          "y_percent": 42.0,
+          "description": "Clicked on target description"
+        }}
+        If not found, set "found" to false.
+        Ensure x_percent and y_percent are the precise center point of the element '{target}' (0 to 100).
+        """
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are J.A.R.V.I.S., an elite screen navigator. You output coordinates to click elements on screen."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{screenshot_b64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ],
+            temperature=0.0,
+            max_tokens=200,
+            response_format={"type": "json_object"}
+        )
+
+        raw = response.choices[0].message.content.strip()
+        data = json.loads(raw)
+
+        if data.get("found"):
+            x_percent = float(data["x_percent"])
+            y_percent = float(data["y_percent"])
+            
+            # Clamp values to [0, 100]
+            x_percent = max(0.0, min(100.0, x_percent))
+            y_percent = max(0.0, min(100.0, y_percent))
+
+            x_pixel = int(width * x_percent / 100.0)
+            y_pixel = int(height * y_percent / 100.0)
+
+            # Move and click
+            pyautogui.moveTo(x_pixel, y_pixel, duration=0.5)
+            pyautogui.click()
+            
+            desc = data.get("description", target)
+            return f"Clicked on {target} ({desc}) at coordinates {x_pixel}, {y_pixel}, Sir."
+        else:
+            return f"Sir, I could not find the element '{target}' on the screen."
+
+    except Exception as e:
+        return f"Sir, I encountered an issue clicking {target}: {str(e)}"

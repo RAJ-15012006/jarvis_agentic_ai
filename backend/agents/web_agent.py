@@ -336,6 +336,12 @@ def web_search(query: str) -> tuple:
                 # network or parsing failed — fall back to search results URL
                 pass
 
+        # Only return search URL if user explicitly asked to search or search in Google
+        if intent == "search":
+            explicit_search = any(w in cmd for w in ["search", "google", "look up", "find online", "find on the web"])
+            if not explicit_search:
+                url = None
+
         return spoken, url
 
     except Exception as e:

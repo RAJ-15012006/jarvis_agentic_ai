@@ -5,9 +5,13 @@ const BASE_URL = window.location.origin.includes('localhost')
   : window.location.origin;
 
 const genderConfig = {
-  Boy:  { color: '#38bdf8', label: 'BOY / MALE',   icon: '♂', glow: 'rgba(56,189,248,0.35)' },
-  Girl: { color: '#f472b6', label: 'GIRL / FEMALE', icon: '♀', glow: 'rgba(244,114,182,0.35)' },
+  Boy:  { color: '#38bdf8', label: 'MALE / BOY',   icon: '♂', glow: 'rgba(56,189,248,0.35)' },
+  Girl: { color: '#f472b6', label: 'FEMALE / GIRL', icon: '♀', glow: 'rgba(244,114,182,0.35)' },
   Multiple:          { color: '#a78bfa', label: 'MULTIPLE', icon: '⚧', glow: 'rgba(167,139,250,0.35)' },
+  Object:            { color: '#00ffc9', label: 'OBJECT',   icon: '📦', glow: 'rgba(0,255,201,0.35)' },
+  Scene:             { color: '#34d399', label: 'ENVIRONMENT', icon: '🏞️', glow: 'rgba(52,211,153,0.35)' },
+  Text:              { color: '#fbbf24', label: 'TEXT / DOC',  icon: '📄', glow: 'rgba(251,191,36,0.35)' },
+  Animal:            { color: '#fb7185', label: 'ANIMAL',      icon: '🐾', glow: 'rgba(251,113,133,0.35)' },
   Unclear:           { color: '#94a3b8', label: 'UNCLEAR',  icon: '?', glow: 'rgba(148,163,184,0.25)' },
   'No Person Detected': { color: '#f87171', label: 'NO PERSON', icon: '✗', glow: 'rgba(248,113,113,0.25)' },
 };
@@ -83,7 +87,7 @@ export const GenderDetection = () => {
   return (
     <div className="border border-jarvis-cyan/30 bg-black/60 rounded-lg p-4 shadow-[0_0_15px_rgba(0,255,209,0.05)] text-jarvis-cyan backdrop-blur-sm">
       <h3 className="font-orbitron text-xs tracking-widest font-bold text-center mb-3">
-        BIOMETRIC · GENDER SCAN
+        INTELLIGENT · VISION SCAN
       </h3>
 
       {/* Drop zone */}
@@ -98,11 +102,13 @@ export const GenderDetection = () => {
               : 'border-jarvis-cyan/30 hover:bg-jarvis-cyan/5'
           }`}
         >
-          {/* Gender icons decorative */}
-          <div className="flex gap-3 mb-2">
-            <span className="text-[#38bdf8] text-xl font-bold">♂</span>
-            <span className="text-jarvis-cyan/40 text-xl">|</span>
-            <span className="text-[#f472b6] text-xl font-bold">♀</span>
+          {/* Scan icons decorative */}
+          <div className="flex gap-3 mb-2 items-center">
+            <span className="text-[#38bdf8] text-lg font-bold">♂</span>
+            <span className="text-[#f472b6] text-lg font-bold">♀</span>
+            <span className="text-jarvis-cyan/40 text-xs">|</span>
+            <span className="text-jarvis-cyan text-lg">📦</span>
+            <span className="text-[#fbbf24] text-lg">📄</span>
           </div>
           <span className="font-mono text-xs tracking-wider text-jarvis-cyan/80 text-center">
             UPLOAD IMAGE TO SCAN
