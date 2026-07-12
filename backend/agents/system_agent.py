@@ -389,6 +389,78 @@ def handle_empty_trash(cmd: str) -> str:
 # Folder Creation
 # ─────────────────────────────────────────────────────────────────────────────
 
+def handle_create_and_write_code(cmd: str) -> str:
+    """Create a folder on the Desktop and write a generated Python script inside it."""
+    import json
+    from groq import Groq
+    
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key or api_key == "your_groq_api_key_here":
+        # Heuristic fallback if Groq is unavailable
+        desktop_path = os.path.expanduser("~/Desktop")
+        folder_path = os.path.join(desktop_path, "JarvisProject")
+        os.makedirs(folder_path, exist_ok=True)
+        file_path = os.path.join(folder_path, "main.py")
+        fallback_code = 'print("Hello from JARVIS!")\n'
+        with open(file_path, "w") as f:
+            f.write(fallback_code)
+        if IS_MAC:
+            subprocess.Popen(["open", folder_path])
+        return "Raj, I created a folder named 'JarvisProject' and wrote a default main.py inside it."
+
+    try:
+        client = Groq(api_key=api_key)
+        prompt = f"""
+        Extract or generate the folder name, file name, and Python code from the user request: "{cmd}"
+        The goal is to create a folder on the Desktop and write a Python script inside it.
+        
+        Guidelines:
+        - "folder_name": Extracted folder name (capitalized/camelCase, e.g., "ChatbotProject"). If not specified, use "JarvisApp".
+        - "file_name": The target Python filename (e.g. "chatbot.py", "main.py").
+        - "code": Generate complete, fully-functional, clean, commented Python code fulfilling the request (e.g., a chatbot, a weather fetcher, a web scraper, or calculator).
+
+        Respond strictly in JSON:
+        {{
+          "folder_name": "folder_name",
+          "file_name": "file_name",
+          "code": "Python code here"
+        }}
+        """
+        
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.2
+        )
+        
+        res_data = json.loads(response.choices[0].message.content)
+        folder_name = res_data.get("folder_name", "JarvisApp").strip()
+        file_name = res_data.get("file_name", "main.py").strip()
+        code_content = res_data.get("code", "")
+        
+        # Sanitize folder/file names
+        folder_name = re.sub(r'[^\w\-_]', '_', folder_name)
+        if not file_name.endswith(".py"):
+            file_name += ".py"
+        file_name = re.sub(r'[^\w\-_.]', '_', file_name)
+        
+        desktop_path = os.path.expanduser("~/Desktop")
+        folder_path = os.path.join(desktop_path, folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+        
+        file_path = os.path.join(folder_path, file_name)
+        with open(file_path, "w") as f:
+            f.write(code_content)
+            
+        if IS_MAC:
+            subprocess.Popen(["open", folder_path])
+            
+        return f"Raj, I created the folder '{folder_name}' on your Desktop and wrote '{file_name}' inside it."
+    except Exception as e:
+        return f"Raj, failed to create project: {e}"
+
+
 def handle_create_folder(cmd: str) -> str:
     folder_name = "NewFolder"
     for prefix in ["make folder", "create folder", "new folder"]:
@@ -466,8 +538,11 @@ def execute_system_command(command: str) -> str:
         if any(p in cmd for p in ["uptime", "system info", "how long"]):
             return handle_system_info(cmd)
 
-        # ── Folder Creation ──────────────────────────────────────────────────
-        if any(p in cmd for p in ["make folder", "create folder", "new folder"]):
+        # ── Folder & Code Creation ───────────────────────────────────────────
+        if any(p in cmd for p in ["make folder", "create folder", "new folder"]) and any(k in cmd for k in ["write", "python", "code", "file", "script"]):
+            return handle_create_and_write_code(cmd)
+
+        elif any(p in cmd for p in ["make folder", "create folder", "new folder"]):
             return handle_create_folder(cmd)
 
         # ── Lock ─────────────────────────────────────────────────────────────
