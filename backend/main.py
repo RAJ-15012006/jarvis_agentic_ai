@@ -173,6 +173,20 @@ async def execute_global_command(command: str):
         await sio.emit('activity_state', {'state': 'STANDBY'})
         return
 
+    # --- Heartbeat check ---
+    if any(w in command.lower() for w in ["heartbeat", "heart rate", "heart beat",
+                                           "pulse", "bpm", "check my heart"]):
+        await sio.emit('activity_state', {'state': 'PROCESSING'})
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis',
+                        'message': 'Raj, starting heart rate scan. Look at the camera and stay still for 15 seconds.'})
+        await asyncio.to_thread(speak_text, 'Starting heart rate scan. Look at the camera and stay still, Raj.')
+        heart_response = await asyncio.to_thread(measure_heart_rate)
+        await sio.emit('activity_state', {'state': 'SPEAKING'})
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': heart_response})
+        await asyncio.to_thread(speak_text, heart_response)
+        await sio.emit('activity_state', {'state': 'STANDBY'})
+        return
+
     # Normal routing
     route_info = route_command(command)
     agent_type = route_info.get("agent")
