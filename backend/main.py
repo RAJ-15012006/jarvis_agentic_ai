@@ -253,9 +253,13 @@ async def startup_event():
     
     # Start global microphone listener as a standalone OS process to prevent uvicorn deadlock
     try:
+        # Prevent duplicate background listeners by killing any orphans first
+        subprocess.run(["pkill", "-f", "global_voice_listener.py"], capture_output=True)
+        time.sleep(0.5)
+        
         listener_script = os.path.join(os.path.dirname(__file__), "global_voice_listener.py")
         subprocess.Popen([sys.executable, listener_script], close_fds=True)
-        print("[STARTUP] Standalone global voice listener process spawned successfully.")
+        print("[STARTUP] Standalone global voice listener process spawned successfully (cleaned orphans).")
     except Exception as e:
         print(f"[STARTUP ERROR] Could not spawn standalone voice listener: {e}")
 
