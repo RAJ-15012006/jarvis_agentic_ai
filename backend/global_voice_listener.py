@@ -2,60 +2,94 @@
 global_voice_listener.py — Standalone Global Microphone Voice Listener
 ========================================================================
 Runs in a separate OS process to avoid blocking the FastAPI uvicorn server.
-Listens to the default system microphone, transcribes speech, and posts
-commands to the local JARVIS API.
+Listens to the default system microphone using sounddevice InputStream,
+detects speech dynamically via amplitude threshold, transcribes complete
+phrases, and posts them to the local JARVIS API.
 """
 
 import time
 import os
 import requests
+import sys
+import queue
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+import speech_recognition as sr
+import tempfile
+import threading
 
 # ── Configuration ────────────────────────────────────────────────────────────
 API_URL = "http://127.0.0.1:8000/api/voice-command"
 SAMPLE_RATE = 16000
-CHUNK_DURATION = 3.5  # Listen in 3.5-second windows
+
+# Voice Activity Detection (VAD) parameters
+SILENCE_THRESHOLD = 800  # Amplitude threshold (lower = more sensitive)
+SILENCE_DURATION = 1.0   # Seconds of silence to trigger end of phrase
+MAX_PHRASE_DURATION = 8.0 # Max duration to prevent infinite recording
 
 def run_listener():
-    # Delay imports until runtime to verify packages
-    import sounddevice as sd
-    import soundfile as sf
-    import speech_recognition as sr
-    import numpy as np
-    import tempfile
-    import queue
-    import threading
-
     audio_queue = queue.Queue()
+    
+    # State variables for VAD
+    state = {
+        "recording": False,
+        "frames": [],
+        "silence_counter": 0,
+        "total_frames": 0
+    }
+    
+    # Minimum frames of silence needed to trigger end of phrase
+    # (each callback block is 512 frames @ 16kHz = 0.032 seconds)
+    block_duration = 512 / SAMPLE_RATE
+    silence_limit = int(SILENCE_DURATION / block_duration)
+    max_frame_limit = int(MAX_PHRASE_DURATION / block_duration)
 
-    def recorder_worker():
-        print("[VOICE LISTENER] Continuous global microphone recording thread active...")
-        while True:
-            try:
-                recording = sd.rec(
-                    int(CHUNK_DURATION * SAMPLE_RATE),
-                    samplerate=SAMPLE_RATE,
-                    channels=1,
-                    dtype='int16'
-                )
-                sd.wait()
-                audio_queue.put(recording)
-            except Exception as e:
-                print(f"[VOICE LISTENER] Recording error: {e}")
-                time.sleep(1)
+    def audio_callback(indata, frames_count, time_info, status):
+        """This is called for each audio block by sounddevice."""
+        if status:
+            print(f"[VOICE LISTENER] InputStream status: {status}", file=sys.stderr)
+            
+        data = indata.copy().flatten()
+        max_val = np.max(np.abs(data))
+        
+        if not state["recording"]:
+            # If sound level is above threshold, start recording a phrase
+            if max_val > SILENCE_THRESHOLD:
+                state["recording"] = True
+                state["frames"] = [data]
+                state["silence_counter"] = 0
+                state["total_frames"] = 1
+        else:
+            state["frames"].append(data)
+            state["total_frames"] += 1
+            
+            # Check if current frame is silent
+            if max_val < SILENCE_THRESHOLD:
+                state["silence_counter"] += 1
+            else:
+                state["silence_counter"] = 0
+                
+            # Trigger end of phrase if silent for too long, or reached max duration
+            if state["silence_counter"] >= silence_limit or state["total_frames"] >= max_frame_limit:
+                # Compile complete phrase
+                phrase_audio = np.concatenate(state["frames"])
+                audio_queue.put(phrase_audio)
+                # Reset state
+                state["recording"] = False
+                state["frames"] = []
+                state["silence_counter"] = 0
+                state["total_frames"] = 0
 
     def transcriber_worker():
         r = sr.Recognizer()
-        print("[VOICE LISTENER] Continuous global transcription thread active...")
+        print("[VOICE LISTENER] Global VAD transcription thread active...")
         while True:
             try:
                 recording = audio_queue.get()
-                max_val = np.max(np.abs(recording))
-                if max_val < 900:  # Adjust if room is noisy or mic is quiet
-                    audio_queue.task_done()
-                    continue
-
+                
                 temp_dir = tempfile.gettempdir()
-                temp_path = os.path.join(temp_dir, f"jarvis_voice_chunk_{int(time.time())}.wav")
+                temp_path = os.path.join(temp_dir, f"jarvis_voice_phrase_{int(time.time())}.wav")
                 sf.write(temp_path, recording, SAMPLE_RATE)
 
                 with sr.AudioFile(temp_path) as source:
@@ -84,13 +118,17 @@ def run_listener():
                 print(f"[VOICE LISTENER] Transcribing loop error: {e}")
                 time.sleep(1)
 
-    # Start the recorder and transcriber threads
-    threading.Thread(target=recorder_worker, daemon=True).start()
+    # Start transcriber worker
     threading.Thread(target=transcriber_worker, daemon=True).start()
 
-    # Keep the main listener function alive
-    while True:
-        time.sleep(1)
+    print("[VOICE LISTENER] Listening for speech dynamically using sounddevice InputStream...")
+    try:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16', 
+                            blocksize=512, callback=audio_callback):
+            while True:
+                time.sleep(1)
+    except Exception as e:
+        print(f"[VOICE LISTENER] InputStream failed to start: {e}")
 
 if __name__ == "__main__":
     # Wait briefly for main server to boot up first
