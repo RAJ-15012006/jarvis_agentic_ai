@@ -741,21 +741,41 @@ def _chrome_nav(command: str):
     return None
 
 
-def _find_recent_downloaded_pdf():
-    downloads_dir = os.path.expanduser("~/Downloads")
-    if not os.path.exists(downloads_dir):
-        return None
+def _find_any_recent_pdf(search_name: str = ""):
+    """
+    Find the most recently modified PDF across Downloads, Desktop, Documents, and home.
+    If search_name is given, finds the closest matching filename.
+    """
+    search_dirs = [
+        os.path.expanduser("~/Downloads"),
+        os.path.expanduser("~/Desktop"),
+        os.path.expanduser("~/Documents"),
+        os.path.expanduser("~"),
+    ]
     pdf_files = []
     try:
-        for f in os.listdir(downloads_dir):
-            if f.lower().endswith(".pdf"):
-                full_path = os.path.join(downloads_dir, f)
-                if os.path.isfile(full_path):
-                    pdf_files.append((full_path, os.path.getmtime(full_path)))
+        for folder in search_dirs:
+            if not os.path.exists(folder):
+                continue
+            for f in os.listdir(folder):
+                if f.lower().endswith(".pdf"):
+                    full_path = os.path.join(folder, f)
+                    if os.path.isfile(full_path):
+                        pdf_files.append((full_path, os.path.getmtime(full_path), f.lower()))
     except Exception:
         return None
+
     if not pdf_files:
         return None
+
+    # If a name hint was given, prefer closest match
+    if search_name:
+        search_name = search_name.lower().replace(" ", "")
+        for path, mtime, fname in pdf_files:
+            if search_name in fname:
+                return path
+
+    # Otherwise return the most recently modified PDF
     pdf_files.sort(key=lambda x: x[1], reverse=True)
     return pdf_files[0][0]
 
@@ -882,18 +902,22 @@ def execute_automation(command: str) -> str:
                     elif keyword not in ["spotify", "whatsapp"]:
                         return _open_mac_app(app_name)
 
-        # --- Open Downloaded PDF in Chrome ---
-        if "pdf" in cmd and any(k in cmd for k in ["download", "open", "recent"]):
-            pdf_path = _find_recent_downloaded_pdf()
+        # --- Open a PDF file (searches Downloads, Desktop, Documents automatically) ---
+        if "pdf" in cmd:
+            # Extract optional filename hint e.g. "open resume pdf"
+            name_hint = ""
+            for noise in ["open", "show", "a", "the", "my", "pdf", "file", "please",
+                          "recent", "latest", "download", "downloaded"]:
+                cmd_clean = cmd.replace(noise, " ").strip()
+            name_hint = cmd_clean.strip()
+
+            pdf_path = _find_any_recent_pdf(name_hint)
             if not pdf_path:
-                return "Raj, I couldn't find any PDF files in your Downloads folder."
-            if sys.platform == "darwin":
-                subprocess.Popen(["open", "-a", "Google Chrome", pdf_path])
-            else:
-                import urllib.parse
-                file_url = f"file://{urllib.parse.quote(pdf_path)}"
-                webbrowser.open(file_url)
-            return f"Opening your most recent downloaded PDF ({os.path.basename(pdf_path)}) in Google Chrome, Raj."
+                return "Raj, I couldn't find any PDF on your Mac. Try placing it in Downloads or Desktop."
+
+            # Open with default app (Preview for local PDFs, or Chrome)
+            subprocess.Popen(["open", pdf_path])   # macOS default PDF viewer
+            return f"Opening {os.path.basename(pdf_path)}, Raj."
 
         # --- Open JARVIS itself ---
         if "open jarvis" in cmd or "launch jarvis" in cmd:
