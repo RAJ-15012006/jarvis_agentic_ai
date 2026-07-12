@@ -102,6 +102,36 @@ async def execute_global_command(command: str):
         await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Muted."})
         await sio.emit('activity_state', {'state': 'STANDBY'})
         return
+
+    # Check for immediate COME BACK command to return to JARVIS page
+    if command.lower().strip() in ["come back", "go back to jarvis", "open jarvis page"]:
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Coming back to my home screen, Raj."})
+        await sio.emit('activity_state', {'state': 'SPEAKING'})
+        if sys.platform == "darwin":
+            script = """
+            tell application "Google Chrome"
+                activate
+                set foundTab to false
+                repeat with w in windows
+                    set tabIndex to 1
+                    repeat with t in tabs of w
+                        if (URL of t contains "localhost:8000") or (URL of t contains "127.0.0.1:8000") then
+                            set active tab index of w to tabIndex
+                            set index of w to 1
+                            set foundTab to true
+                            exit repeat
+                        end if
+                        set tabIndex to tabIndex + 1
+                    end repeat
+                    if foundTab then exit repeat
+                end repeat
+            end tell
+            """
+            import subprocess
+            subprocess.run(["osascript", "-e", script])
+        await asyncio.to_thread(speak_text, "Welcome back, Raj.")
+        await sio.emit('activity_state', {'state': 'STANDBY'})
+        return
         
     # Broadcast command to all connected frontend clients so the log updates
     await sio.emit('system_log', {'time': now, 'type': 'user', 'message': f"[Voice] {command}"})
@@ -705,6 +735,36 @@ async def process_command(sid, data):
     if raw_command.lower().strip() in ["stop", "stop speaking", "be quiet", "shut up", "mute"]:
         interrupt()
         await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Muted."}, room=sid)
+        await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
+        return
+
+    # Check for immediate COME BACK command to return to JARVIS page
+    if raw_command.lower().strip() in ["come back", "go back to jarvis", "open jarvis page"]:
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Coming back to my home screen, Raj."}, room=sid)
+        await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+        if sys.platform == "darwin":
+            script = """
+            tell application "Google Chrome"
+                activate
+                set foundTab to false
+                repeat with w in windows
+                    set tabIndex to 1
+                    repeat with t in tabs of w
+                        if (URL of t contains "localhost:8000") or (URL of t contains "127.0.0.1:8000") then
+                            set active tab index of w to tabIndex
+                            set index of w to 1
+                            set foundTab to true
+                            exit repeat
+                        end if
+                        set tabIndex to tabIndex + 1
+                    end repeat
+                    if foundTab then exit repeat
+                end repeat
+            end tell
+            """
+            import subprocess
+            subprocess.run(["osascript", "-e", script])
+        await asyncio.to_thread(speak_text, "Welcome back, Raj.")
         await sio.emit('activity_state', {'state': 'STANDBY'}, room=sid)
         return
 
