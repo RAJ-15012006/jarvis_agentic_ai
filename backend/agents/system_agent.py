@@ -4,6 +4,8 @@ import time
 import subprocess
 import pyautogui
 import sys
+import datetime
+
 try:
     import pygetwindow as gw
 except ImportError:
@@ -12,383 +14,509 @@ except ImportError:
 IS_MAC = sys.platform == "darwin"
 IS_WINDOWS = sys.platform == "win32"
 
-# Whitelist of allowed executables — nothing outside this list can be launched
-ALLOWED_APPS_WIN = {
-    "chrome":       ["start", "chrome"],
-    "google chrome":["start", "chrome"],
-    "vscode":       ["code"],
-    "vs code":      ["code"],
-    "code":         ["code"],
-    "notepad":      ["notepad.exe"],
-    "spotify":      ["start", "spotify"],
-    "whatsapp":     ["start", "whatsapp"],
-    "explorer":     ["explorer.exe"],
-    "file explorer":["explorer.exe"],
-    "files":        ["explorer.exe"],
-    "task manager": ["taskmgr.exe"],
-    "calculator":   ["calc.exe"],
-    "calc":         ["calc.exe"],
-    "camera":       ["start", "microsoft.windows.camera:"],
-    "settings":     ["start", "ms-settings:"],
-    "paint":        ["mspaint.exe"],
-    "word":         ["search", "Microsoft Word"],
-    "excel":        ["search", "Microsoft Excel"],
-    "powerpoint":   ["search", "Microsoft PowerPoint"],
-    "power point":  ["search", "Microsoft PowerPoint"],
-    "cmd":          ["cmd.exe"],
-    "command prompt":["cmd.exe"],
-    "terminal":     ["cmd.exe"],
-}
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
-ALLOWED_CLOSE_WIN = {
-    "chrome":       "chrome.exe",
-    "notepad":      "notepad.exe",
-    "spotify":      "spotify.exe",
-    "whatsapp":     "whatsapp.exe",
-    "vscode":       "code.exe",
-    "vs code":      "code.exe",
-    "code":         "code.exe",
-    "explorer":     "explorer.exe",
-    "task manager": "taskmgr.exe",
-    "calculator":   "calc.exe",
-    "paint":        "mspaint.exe",
-    "word":         "winword.exe",
-    "excel":        "excel.exe",
-    "powerpoint":   "powerpnt.exe",
-    "cmd":          "cmd.exe",
-    "terminal":     "cmd.exe",
-}
+def _osascript(script: str) -> str:
+    """Run an AppleScript one-liner and return stdout."""
+    try:
+        result = subprocess.run(["osascript", "-e", script],
+                                capture_output=True, text=True)
+        return result.stdout.strip()
+    except Exception as e:
+        return str(e)
 
-# macOS App mapping
-ALLOWED_APPS_MAC = {
-    "chrome":       "Google Chrome",
-    "google chrome":"Google Chrome",
-    "vscode":       "Visual Studio Code",
-    "vs code":      "Visual Studio Code",
-    "code":         "Visual Studio Code",
-    "notepad":      "TextEdit",
-    "textedit":     "TextEdit",
-    "spotify":      "Spotify",
-    "whatsapp":     "WhatsApp",
-    "explorer":     "Finder",
-    "file explorer":"Finder",
-    "files":        "Finder",
-    "task manager": "Activity Monitor",
-    "activity monitor": "Activity Monitor",
-    "calculator":   "Calculator",
-    "calc":         "Calculator",
-    "camera":       "Photo Booth",
-    "photo booth":  "Photo Booth",
-    "settings":     "System Settings",
-    "system settings": "System Settings",
-    "terminal":     "Terminal",
-}
+def _extract_number(text: str):
+    """Extract first integer from a string."""
+    m = re.search(r'\d+', text)
+    return int(m.group()) if m else None
 
-def _open_via_windows_search(app_name: str) -> bool:
-    """Open any app by searching in Windows Start menu."""
-    pyautogui.press('win')
-    time.sleep(1.5)
-    pyautogui.typewrite(app_name, interval=0.1)
-    time.sleep(2)  # wait for search results
-    pyautogui.press('enter')
-    time.sleep(1)
-    return True
+def _clamp(val: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, val))
 
-def _run(args: list):
-    """Safe subprocess call — no shell=True, fixed arg list only."""
-    subprocess.run(args, shell=False, creationflags=subprocess.CREATE_NO_WINDOW
-                   if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+def _save_screenshot() -> str:
+    """Take a screenshot and save to Desktop AND Downloads. Returns filepath."""
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"jarvis_screenshot_{ts}.png"
+    desktop = os.path.expanduser(f"~/Desktop/{fname}")
+    downloads = os.path.expanduser(f"~/Downloads/{fname}")
+    img = pyautogui.screenshot()
+    img.save(desktop)
+    img.save(downloads)
+    return desktop, downloads, fname
 
-def _run_shell(args: list):
-    """For Windows 'start' commands that require shell=True but with fixed args only."""
-    subprocess.run(" ".join(args), shell=True, creationflags=subprocess.CREATE_NO_WINDOW
-                   if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+# ─────────────────────────────────────────────────────────────────────────────
+# Volume
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_volume() -> int:
+    if IS_MAC:
+        out = _osascript("output volume of (get volume settings)")
+        try:
+            return int(out)
+        except:
+            return 50
+    return 50
+
+def _set_volume(level: int):
+    level = _clamp(level, 0, 100)
+    if IS_MAC:
+        _osascript(f"set volume output volume {level}")
+    else:
+        for _ in range(10):
+            pyautogui.press("volumedown")
+        steps = level // 6
+        for _ in range(steps):
+            pyautogui.press("volumeup")
+
+def handle_volume(cmd: str) -> str:
+    # Set volume to exact number
+    m = re.search(r'(?:set|volume)\s+(?:to\s+)?(\d+)', cmd)
+    if m:
+        val = _clamp(int(m.group(1)), 0, 100)
+        _set_volume(val)
+        return f"Volume set to {val}%, Raj."
+
+    current = _get_volume()
+
+    if any(p in cmd for p in ["volume up", "increase volume", "louder", "turn up", "raise volume"]):
+        step = _extract_number(cmd) or 10
+        _set_volume(current + step)
+        return f"Volume increased to {min(100, current + step)}%, Raj."
+
+    if any(p in cmd for p in ["volume down", "decrease volume", "quieter", "turn down", "lower volume"]):
+        step = _extract_number(cmd) or 10
+        _set_volume(current - step)
+        return f"Volume decreased to {max(0, current - step)}%, Raj."
+
+    if "unmute" in cmd:
+        if IS_MAC:
+            _osascript("set volume without output muted")
+        else:
+            pyautogui.press("volumemute")
+        return "Audio unmuted, Raj."
+
+    if "mute" in cmd:
+        if IS_MAC:
+            _osascript("set volume with output muted")
+        else:
+            pyautogui.press("volumemute")
+        return "Audio muted, Raj."
+
+    if any(p in cmd for p in ["what is the volume", "current volume", "volume level"]):
+        return f"Current volume is {current}%, Raj."
+
+    return f"Current volume is {current}%, Raj."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Brightness
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _set_brightness_mac(level: int):
+    """Set brightness using AppleScript key presses (relative, not absolute)."""
+    level = _clamp(level, 0, 100)
+    # First press brightness down 16 times to go to minimum
+    script = """
+    tell application "System Events"
+        repeat 16 times
+            key code 145
+        end repeat
+    end tell
+    """
+    subprocess.run(["osascript", "-e", script])
+    time.sleep(0.3)
+    # Then press up to reach target level (each press ~6%)
+    steps = round(level / 6)
+    up_script = f"""
+    tell application "System Events"
+        repeat {steps} times
+            key code 144
+        end repeat
+    end tell
+    """
+    subprocess.run(["osascript", "-e", up_script])
+
+def handle_brightness(cmd: str) -> str:
+    m = re.search(r'(?:set|brightness)\s+(?:to\s+)?(\d+)', cmd)
+    if m:
+        val = _clamp(int(m.group(1)), 0, 100)
+        if IS_MAC:
+            _set_brightness_mac(val)
+        return f"Brightness set to {val}%, Raj."
+
+    if any(p in cmd for p in ["brightness up", "increase brightness", "brighter", "more bright"]):
+        if IS_MAC:
+            _osascript('tell application "System Events" to repeat 3 times\nkey code 144\nend repeat')
+        return "Brightness increased, Raj."
+
+    if any(p in cmd for p in ["brightness down", "decrease brightness", "dimmer", "dim", "less bright"]):
+        if IS_MAC:
+            _osascript('tell application "System Events" to repeat 3 times\nkey code 145\nend repeat')
+        return "Brightness decreased, Raj."
+
+    if "max brightness" in cmd or "full brightness" in cmd:
+        if IS_MAC:
+            _set_brightness_mac(100)
+        return "Brightness set to maximum, Raj."
+
+    if "min brightness" in cmd or "minimum brightness" in cmd:
+        if IS_MAC:
+            _set_brightness_mac(0)
+        return "Brightness set to minimum, Raj."
+
+    return "Raj, say 'brightness up', 'brightness down', or 'set brightness to 70'."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Battery
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_battery(cmd: str) -> str:
+    if IS_MAC:
+        try:
+            raw = subprocess.check_output(["pmset", "-g", "batt"], text=True)
+            # Parse percentage
+            pct_match = re.search(r'(\d+)%', raw)
+            pct = pct_match.group(1) if pct_match else "unknown"
+            # Parse charging status
+            if "AC Power" in raw:
+                status = "charging"
+            elif "discharging" in raw:
+                status = "discharging (on battery)"
+            else:
+                status = "on battery"
+            # Parse time remaining
+            time_match = re.search(r'(\d+:\d+) remaining', raw)
+            time_left = f", {time_match.group(1)} remaining" if time_match else ""
+            return f"Raj, your battery is at {pct}% and is {status}{time_left}."
+        except Exception as e:
+            return f"Raj, could not read battery: {e}"
+    return "Raj, battery check is only supported on Mac right now."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Screenshot
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_screenshot(cmd: str) -> str:
+    try:
+        time.sleep(0.5)  # Small delay so JARVIS window doesn't appear in screenshot
+        desktop_path, downloads_path, fname = _save_screenshot()
+        # Open the screenshot in Preview
+        if IS_MAC:
+            subprocess.Popen(["open", desktop_path])
+        return f"Screenshot saved! '{fname}' is in both your Desktop and Downloads, Raj."
+    except Exception as e:
+        return f"Raj, screenshot failed: {e}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Do Not Disturb
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_do_not_disturb(cmd: str) -> str:
+    if not IS_MAC:
+        return "Do Not Disturb is only supported on Mac, Raj."
+    enable = any(p in cmd for p in ["enable", "on", "turn on", "activate", "start"])
+    disable = any(p in cmd for p in ["disable", "off", "turn off", "deactivate", "stop"])
+    if enable:
+        # macOS Sonoma/Ventura: toggle Focus via shortcuts
+        _osascript("""
+        tell application "System Events"
+            tell process "Control Center"
+                set frontmost to true
+            end tell
+        end tell
+        """)
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to keystroke "d" using {command down, option down}'])
+        return "Do Not Disturb enabled, Raj. You won't be disturbed."
+    elif disable:
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to keystroke "d" using {command down, option down}'])
+        return "Do Not Disturb disabled, Raj. Notifications are back on."
+    else:
+        # Toggle
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to keystroke "d" using {command down, option down}'])
+        return "Do Not Disturb toggled, Raj."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dark Mode
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_dark_mode(cmd: str) -> str:
+    if not IS_MAC:
+        return "Dark mode toggle is only supported on Mac, Raj."
+    enable = any(p in cmd for p in ["enable", "on", "turn on", "activate", "dark"])
+    disable = any(p in cmd for p in ["disable", "off", "turn off", "light mode", "light"])
+
+    if "toggle" in cmd or (enable and disable) or (not enable and not disable):
+        _osascript('tell app "System Events" to tell appearance preferences to set dark mode to not dark mode')
+        return "Dark mode toggled, Raj."
+    elif enable and "light" not in cmd:
+        _osascript('tell app "System Events" to tell appearance preferences to set dark mode to true')
+        return "Dark mode enabled, Raj."
+    else:
+        _osascript('tell app "System Events" to tell appearance preferences to set dark mode to false')
+        return "Light mode enabled, Raj."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clipboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_clipboard(cmd: str) -> str:
+    if "what" in cmd or "read" in cmd or "show" in cmd:
+        try:
+            result = subprocess.run(["pbpaste"], capture_output=True, text=True)
+            content = result.stdout.strip()
+            if content:
+                return f"Raj, your clipboard contains: '{content[:200]}'"
+            return "Raj, your clipboard is empty."
+        except Exception as e:
+            return f"Raj, could not read clipboard: {e}"
+    if "clear" in cmd:
+        subprocess.run(["pbcopy"], input="", text=True)
+        return "Clipboard cleared, Raj."
+    if "copy" in cmd:
+        pyautogui.hotkey("command" if IS_MAC else "ctrl", "c")
+        return "Copied, Raj."
+    if "paste" in cmd:
+        pyautogui.hotkey("command" if IS_MAC else "ctrl", "v")
+        return "Pasted, Raj."
+    return "Raj, say 'read clipboard', 'copy', 'paste', or 'clear clipboard'."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Window Management
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_window(cmd: str) -> str:
+    if IS_MAC:
+        if any(p in cmd for p in ["minimize", "minimise", "hide window"]):
+            _osascript('tell application "System Events" to keystroke "m" using command down')
+            return "Window minimized, Raj."
+        if any(p in cmd for p in ["maximize", "maximise", "full screen", "fullscreen window"]):
+            pyautogui.hotkey("ctrl", "command", "f")
+            return "Window maximized, Raj."
+        if any(p in cmd for p in ["close window", "close this window", "close app"]):
+            _osascript('tell application "System Events" to keystroke "w" using command down')
+            return "Window closed, Raj."
+        if any(p in cmd for p in ["hide all", "show desktop", "minimize all"]):
+            _osascript('tell application "System Events" to keystroke "h" using {command down, option down}')
+            return "All windows hidden, Raj."
+        if "switch app" in cmd or "next app" in cmd:
+            pyautogui.hotkey("command", "tab")
+            return "Switched to next app, Raj."
+    else:
+        if "minimize" in cmd:
+            pyautogui.hotkey("win", "down")
+            return "Window minimized, Raj."
+        if "maximize" in cmd:
+            pyautogui.hotkey("win", "up")
+            return "Window maximized, Raj."
+        if "close window" in cmd:
+            pyautogui.hotkey("alt", "f4")
+            return "Window closed, Raj."
+        if "show desktop" in cmd:
+            pyautogui.hotkey("win", "d")
+            return "Showing desktop, Raj."
+    return "Raj, say 'minimize', 'maximize', 'close window', or 'show desktop'."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wi-Fi & Bluetooth
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_wifi(cmd: str) -> str:
+    if not IS_MAC:
+        return "Raj, Wi-Fi toggle is Mac-only right now."
+    if any(p in cmd for p in ["turn on", "enable", "on"]):
+        subprocess.run(["networksetup", "-setairportpower", "en0", "on"])
+        return "Wi-Fi turned on, Raj."
+    if any(p in cmd for p in ["turn off", "disable", "off"]):
+        subprocess.run(["networksetup", "-setairportpower", "en0", "off"])
+        return "Wi-Fi turned off, Raj."
+    # Get current status
+    result = subprocess.run(["networksetup", "-getairportpower", "en0"],
+                            capture_output=True, text=True)
+    return f"Raj, Wi-Fi status: {result.stdout.strip()}"
+
+def handle_bluetooth(cmd: str) -> str:
+    if not IS_MAC:
+        return "Raj, Bluetooth toggle is Mac-only right now."
+    if any(p in cmd for p in ["turn on", "enable", "on"]):
+        subprocess.run(["blueutil", "--power", "1"])
+        return "Bluetooth turned on, Raj."
+    if any(p in cmd for p in ["turn off", "disable", "off"]):
+        subprocess.run(["blueutil", "--power", "0"])
+        return "Bluetooth turned off, Raj."
+    return "Raj, say 'turn on Bluetooth' or 'turn off Bluetooth'."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Disk & System Info
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_disk(cmd: str) -> str:
+    if IS_MAC:
+        try:
+            out = subprocess.check_output(["df", "-h", "/"], text=True)
+            lines = out.strip().split("\n")
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                total, used, avail = parts[1], parts[2], parts[3]
+                return f"Raj, your disk: Total {total}, Used {used}, Available {avail}."
+        except:
+            pass
+    return "Raj, could not check disk space."
+
+def handle_system_info(cmd: str) -> str:
+    if IS_MAC:
+        try:
+            uptime = subprocess.check_output(["uptime"], text=True).strip()
+            return f"Raj, system uptime: {uptime}"
+        except:
+            pass
+    return "Raj, system info is only available on Mac."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Empty Trash
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_empty_trash(cmd: str) -> str:
+    if IS_MAC:
+        _osascript('tell application "Finder" to empty trash')
+        return "Trash emptied, Raj."
+    return "Raj, empty trash is only supported on Mac."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Folder Creation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_create_folder(cmd: str) -> str:
+    folder_name = "NewFolder"
+    for prefix in ["make folder", "create folder", "new folder"]:
+        if prefix in cmd:
+            parts = cmd.split(prefix, 1)
+            if len(parts) > 1 and parts[1].strip():
+                folder_name = parts[1].strip().title()
+            break
+    desktop_path = os.path.expanduser("~/Desktop")
+    folder_path = os.path.join(desktop_path, folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+    if IS_MAC:
+        subprocess.Popen(["open", folder_path])
+    return f"Raj, created folder '{folder_name}' on your Desktop."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main dispatcher
+# ─────────────────────────────────────────────────────────────────────────────
 
 def execute_system_command(command: str) -> str:
-    cmd = command.lower()
+    cmd = command.lower().strip()
     try:
 
-        # --- Shutdown ---
-        if "shut down" in cmd or "shutdown" in cmd:
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", 'tell app "System Events" to shut down'])
-            else:
-                _run(["shutdown", "/s", "/t", "5"])
-            return "Raj, shutting down in 5 seconds."
+        # ── Volume ────────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["volume", "mute", "unmute", "louder", "quieter"]):
+            return handle_volume(cmd)
 
-        # --- Restart ---
-        elif "restart" in cmd or "reboot" in cmd:
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", 'tell app "System Events" to restart'])
-            else:
-                _run(["shutdown", "/r", "/t", "5"])
-            return "Raj, restarting in 5 seconds."
+        # ── Brightness ───────────────────────────────────────────────────────
+        if any(p in cmd for p in ["brightness", "brighter", "dimmer", "dim screen"]):
+            return handle_brightness(cmd)
 
-        # --- Lock ---
-        elif "lock" in cmd:
+        # ── Battery ──────────────────────────────────────────────────────────
+        if "battery" in cmd:
+            return handle_battery(cmd)
+
+        # ── Screenshot ───────────────────────────────────────────────────────
+        if "screenshot" in cmd or "take a photo" in cmd or "capture screen" in cmd:
+            return handle_screenshot(cmd)
+
+        # ── Do Not Disturb ───────────────────────────────────────────────────
+        if any(p in cmd for p in ["do not disturb", "dnd", "focus mode", "don't disturb"]):
+            return handle_do_not_disturb(cmd)
+
+        # ── Dark Mode ────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["dark mode", "light mode", "toggle mode", "night mode"]):
+            return handle_dark_mode(cmd)
+
+        # ── Clipboard ────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["clipboard", "what did i copy", "paste", "copy that"]):
+            return handle_clipboard(cmd)
+
+        # ── Window Management ────────────────────────────────────────────────
+        if any(p in cmd for p in ["minimize", "maximise", "maximize", "close window",
+                                    "close this window", "hide all", "show desktop",
+                                    "switch app", "next app"]):
+            return handle_window(cmd)
+
+        # ── Wi-Fi ────────────────────────────────────────────────────────────
+        if "wifi" in cmd or "wi-fi" in cmd or "wireless" in cmd:
+            return handle_wifi(cmd)
+
+        # ── Bluetooth ────────────────────────────────────────────────────────
+        if "bluetooth" in cmd:
+            return handle_bluetooth(cmd)
+
+        # ── Empty Trash ──────────────────────────────────────────────────────
+        if any(p in cmd for p in ["empty trash", "clear trash", "delete trash"]):
+            return handle_empty_trash(cmd)
+
+        # ── Disk Space ───────────────────────────────────────────────────────
+        if any(p in cmd for p in ["disk space", "storage", "how much space"]):
+            return handle_disk(cmd)
+
+        # ── Uptime / System Info ─────────────────────────────────────────────
+        if any(p in cmd for p in ["uptime", "system info", "how long"]):
+            return handle_system_info(cmd)
+
+        # ── Folder Creation ──────────────────────────────────────────────────
+        if any(p in cmd for p in ["make folder", "create folder", "new folder"]):
+            return handle_create_folder(cmd)
+
+        # ── Lock ─────────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["lock", "lock screen", "lock laptop"]):
             if IS_MAC:
                 subprocess.run(["pmset", "displaysleepnow"])
             else:
-                _run(["rundll32.exe", "user32.dll,LockWorkStation"])
+                subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"])
             return "Screen locked, Raj."
 
-        # --- Sleep ---
-        elif "sleep" in cmd or "hibernate" in cmd:
+        # ── Sleep ────────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["sleep", "hibernate", "sleep mode"]):
             if IS_MAC:
-                subprocess.run(["osascript", "-e", 'tell application "System Events" to sleep'])
+                _osascript('tell application "System Events" to sleep')
             else:
-                _run(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                subprocess.run(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
             return "Putting laptop to sleep, Raj."
 
-        # --- Screenshot ---
-        elif "screenshot" in cmd:
+        # ── Shutdown ─────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["shut down", "shutdown", "power off", "turn off laptop"]):
             if IS_MAC:
-                # Minimize all windows on Mac
-                subprocess.run(["osascript", "-e", 'tell application "System Events" to set visible of every process whose visible is true to false'])
-                time.sleep(0.8)
-                if any(w in cmd for w in ["page", "browser", "chrome", "tab", "screen"]):
-                    subprocess.run(["osascript", "-e", 'tell application "Google Chrome" to activate'])
-                    time.sleep(0.8)
+                _osascript('tell app "System Events" to shut down')
             else:
-                # Minimize all windows on Windows
-                pyautogui.hotkey('win', 'd')  # show desktop
-                time.sleep(0.8)
-                if gw and any(w in cmd for w in ["page", "browser", "chrome", "tab", "screen"]):
-                    chrome_wins = [w for w in gw.getAllWindows()
-                                   if "chrome" in w.title.lower() and w.visible]
-                    if chrome_wins:
-                        chrome_wins[0].restore()
-                        chrome_wins[0].activate()
-                        time.sleep(0.8)
+                subprocess.run(["shutdown", "/s", "/t", "5"])
+            return "Shutting down, Raj."
 
-            path = os.path.join(os.path.expanduser("~"), "Desktop", "jarvis_screenshot.png")
-            pyautogui.screenshot(path)
-
+        # ── Restart ──────────────────────────────────────────────────────────
+        if any(p in cmd for p in ["restart", "reboot"]):
             if IS_MAC:
-                subprocess.Popen(["open", path])
+                _osascript('tell app "System Events" to restart')
             else:
-                subprocess.Popen(["explorer", path])
-            return f"Screenshot taken and saved to Desktop, Raj."
+                subprocess.run(["shutdown", "/r", "/t", "5"])
+            return "Restarting, Raj."
 
-        # --- Volume ---
-        elif "volume up" in cmd or "increase volume" in cmd or "turn up" in cmd:
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", "set volume output volume (output volume of (get volume settings) + 10)"])
-            else:
-                for _ in range(5): pyautogui.press("volumeup")
-            return "Volume increased, Raj."
-
-        elif "volume down" in cmd or "decrease volume" in cmd or "turn down" in cmd:
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", "set volume output volume (output volume of (get volume settings) - 10)"])
-            else:
-                for _ in range(5): pyautogui.press("volumedown")
-            return "Volume decreased, Raj."
-
-        elif "unmute" in cmd:
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", "set volume without output muted"])
-            else:
-                pyautogui.press("volumemute")
-            return "Audio unmuted, Raj."
-
-        elif "mute" in cmd:
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", "set volume with output muted"])
-            else:
-                pyautogui.press("volumemute")
-            return "Audio muted, Raj."
-
-        # --- Brightness ---
-        elif "brightness up" in cmd or "increase brightness" in cmd:
-            _set_brightness(80)
-            return "Brightness increased, Raj."
-
-        elif "brightness down" in cmd or "decrease brightness" in cmd:
-            _set_brightness(30)
-            return "Brightness decreased, Raj."
-
-        # --- Open Apps ---
-        elif "open" in cmd:
-            app_key = cmd.replace("open", "").strip()
-
-            # --- Notepad / TextEdit ---
-            if "notepad" in app_key or "textedit" in app_key:
-                text_to_type = ""
-                for kw in ["and type", "and write", "type", "write"]:
-                    if kw in app_key:
-                        text_to_type = app_key.split(kw, 1)[-1].strip()
-                        break
-
-                if IS_MAC:
-                    subprocess.Popen(["open", "-a", "TextEdit"])
-                    time.sleep(2)
-                    if text_to_type:
-                        import pyperclip
-                        pyperclip.copy(text_to_type)
-                        pyautogui.hotkey('command', 'v')
-                        return f"Raj, opened TextEdit and typed '{text_to_type}'."
-                    return "Opening TextEdit, Raj."
-                else:
-                    _run(["notepad.exe"])
-                    time.sleep(2)
-                    if text_to_type and gw:
-                        notepad_wins = [w for w in gw.getAllWindows()
-                                        if "notepad" in w.title.lower() and w.visible]
-                        if notepad_wins:
-                            notepad_wins[0].activate()
-                            time.sleep(0.5)
-                        import pyperclip
-                        pyperclip.copy(text_to_type)
-                        pyautogui.hotkey('ctrl', 'v')
-                        return f"Raj, opened Notepad and typed '{text_to_type}'."
-                    return "Opening Notepad, Raj."
-
-            # --- All other apps ---
-            if IS_MAC:
-                matched = next((v for k, v in ALLOWED_APPS_MAC.items() if k in app_key), None)
-                if matched:
-                    subprocess.Popen(["open", "-a", matched])
-                    return f"Opening {matched}, Raj."
-                else:
-                    # Generic try open on mac
-                    subprocess.Popen(["open", "-a", app_key.strip().title()])
-                    return f"Opening {app_key.strip().title()}, Raj."
-            else:
-                matched = next((v for k, v in ALLOWED_APPS_WIN.items() if k in app_key), None)
-                if matched:
-                    label = app_key.strip().title()
-                    try:
-                        if matched[0] == "search":
-                            _open_via_windows_search(matched[1])
-                        elif matched[0] == "start":
-                            _run_shell(matched)
-                        else:
-                            _run(matched)
-                        time.sleep(1.5)
-                        if gw:
-                            opened = any(label.lower().split()[0] in w.title.lower()
-                                         for w in gw.getAllWindows() if w.title)
-                            if not opened and matched[0] != "search":
-                                _open_via_windows_search(label)
-                    except Exception:
-                        _open_via_windows_search(app_key.strip())
-                    return f"Opening {label}, Raj."
-                else:
-                    _open_via_windows_search(app_key.strip())
-                    return f"Opening {app_key.strip()}, Raj."
-
-        # --- Close Apps ---
-        elif "close" in cmd:
-            app_key = cmd.replace("close", "").strip()
-            if IS_MAC:
-                matched = next((v for k, v in ALLOWED_APPS_MAC.items() if k in app_key), None)
-                if matched:
-                    subprocess.run(["osascript", "-e", f'quit app "{matched}"'])
-                    return f"Closed {app_key.strip()}, Raj."
-                else:
-                    subprocess.run(["pkill", "-f", app_key.strip()])
-                    return f"Closed {app_key.strip()}, Raj."
-            else:
-                exe = next((v for k, v in ALLOWED_CLOSE_WIN.items() if k in app_key), None)
-                if exe:
-                    _run(["taskkill", "/f", "/im", exe])
-                    return f"Closed {app_key.strip()}, Raj."
-                return f"Raj, I couldn't find '{app_key}' to close."
-
-        # --- Folder Creation ---
-        elif "make folder" in cmd or "create folder" in cmd:
-            folder_name = "NewFolder"
-            for prefix in ["make folder", "create folder"]:
-                if prefix in cmd:
-                    parts = cmd.split(prefix, 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        folder_name = parts[1].strip()
-                    break
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            folder_path = os.path.join(desktop_path, folder_name)
-            os.makedirs(folder_path, exist_ok=True)
-            return f"Raj, I created the folder '{folder_name}' on your Desktop."
-
-        # --- Python Code Generation ---
-        elif "write python code for chatbot" in cmd:
-            code = '''def chat():
-    print("Hello! I am your interactive chatbot.")
-    while True:
-        user_input = input("You: ")
-        if user_input.lower() in ["exit", "quit"]:
-            print("Chatbot: Goodbye!")
-            break
-        print(f"Chatbot: You said '{user_input}'")
-
-if __name__ == "__main__":
-    chat()
-'''
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            file_path = os.path.join(desktop_path, "chatbot.py")
-            with open(file_path, "w") as f:
-                f.write(code)
-            return f"Raj, I wrote the python chatbot script to {file_path}."
-
-        # --- Execute Python Scripts ---
-        elif "run script" in cmd or "execute script" in cmd:
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            file_path = os.path.join(desktop_path, "chatbot.py")
-            if IS_MAC:
-                subprocess.run(["osascript", "-e", f'tell application "Terminal" to do script "python3 {file_path}"'])
-            else:
-                subprocess.Popen(["cmd.exe", "/c", f"start cmd.exe /k python {file_path}"])
-            return f"Raj, I am running the script in a new terminal window."
-
-        # --- Terminal Execution ---
-        elif "run command" in cmd:
+        # ── Run Terminal Command ──────────────────────────────────────────────
+        if "run command" in cmd:
             command_to_run = cmd.split("run command", 1)[1].strip()
             if command_to_run:
                 try:
-                    output = subprocess.check_output(command_to_run, shell=True, text=True, stderr=subprocess.STDOUT)
-                    return f"Raj, output of '{command_to_run}':\n{output[:500]}"
+                    output = subprocess.check_output(
+                        command_to_run, shell=True, text=True,
+                        stderr=subprocess.STDOUT, timeout=10
+                    )
+                    return f"Raj, output: {output.strip()[:400]}"
                 except subprocess.CalledProcessError as e:
-                    return f"Raj, command failed with output: {e.output}"
+                    return f"Raj, command failed: {e.output}"
             return "Raj, please provide a command to run."
 
-        # --- Mac Resource Status ---
-        elif "battery" in cmd:
-            if IS_MAC:
-                try:
-                    output = subprocess.check_output(["pmset", "-g", "batt"], text=True)
-                    return f"Raj, your battery status is: {output.strip()}"
-                except:
-                    return "Raj, could not check battery status."
-            return "Raj, battery check is currently supported on Mac."
-
-        elif "disk space" in cmd:
-            if IS_MAC:
-                try:
-                    output = subprocess.check_output(["df", "-h", "/"], text=True)
-                    return f"Raj, your disk space is:\n{output.strip()}"
-                except:
-                    return "Raj, could not check disk space."
-            return "Raj, disk space check is currently supported on Mac."
-
-        else:
-            return f"Raj, I executed: {command}"
+        return f"Raj, I've executed: {command}"
 
     except Exception as e:
         return f"Raj, I encountered an error: {str(e)}"
-
-
-def _set_brightness(level: int):
-    # Fixed args — level is an int, not user input, so safe
-    level = max(0, min(100, int(level)))  # clamp 0-100
-    if IS_MAC:
-        # Increase or decrease using AppleScript keystrokes based on target level
-        # A simple estimation: 30% is low (repeat down), 80% is high (repeat up)
-        repeats = 10
-        key_code = 144 if level > 50 else 145
-        subprocess.run(["osascript", "-e", f'tell application "System Events" to repeat {repeats} times', "-e", f'key code {key_code}', "-e", 'end repeat'])
-    else:
-        subprocess.run(
-            ["powershell", "-command",
-             f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})"],
-            shell=False
-        )

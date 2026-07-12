@@ -29,9 +29,31 @@ def fallback_route(command: str) -> dict:
     ]
 
     system_keywords = [
-        "shutdown", "shut down", "restart", "reboot", "sleep", "hibernate", "lock", "screenshot", "volume",
-        "brightness", "mute", "unmute", "notepad", "type", "turn", "folder", "script",
-        "command", "battery", "disk", "python", "code", "run", "power off", "turn off"
+        # Power
+        "shutdown", "shut down", "restart", "reboot", "sleep", "hibernate",
+        "power off", "turn off laptop",
+        # Screen
+        "lock", "lock screen", "screenshot", "capture screen", "take a photo",
+        "dark mode", "light mode", "night mode", "toggle mode",
+        "brightness", "brighter", "dimmer", "dim screen",
+        # Audio
+        "volume", "mute", "unmute", "louder", "quieter",
+        # Battery & Storage
+        "battery", "disk space", "storage", "how much space", "uptime", "system info",
+        # Notifications
+        "do not disturb", "dnd", "focus mode", "don't disturb",
+        # Clipboard
+        "clipboard", "what did i copy", "copy that",
+        # Window
+        "minimize", "maximise", "maximize", "close window", "close this window",
+        "hide all", "show desktop", "switch app",
+        # Network
+        "wifi", "wi-fi", "wireless", "bluetooth",
+        # Files
+        "empty trash", "clear trash", "make folder", "create folder", "new folder",
+        # Dev
+        "notepad", "type", "folder", "script", "command", "run command",
+        "python", "run", "battery", "disk",
     ]
 
     # New agent keywords
@@ -165,6 +187,23 @@ def route_command(command: str) -> dict:
     if any(p in cmd for p in ["github stats", "my github", "git push", "git status",
                                 "push my changes", "open issues", "github activity"]):
         return {"agent": "github", "command": command}
+
+    # Fast-path: System commands (instant, no LLM needed)
+    if any(p in cmd for p in [
+        "volume", "mute", "unmute", "louder", "quieter",
+        "brightness", "brighter", "dimmer",
+        "battery", "disk space", "how much space", "uptime",
+        "screenshot", "capture screen",
+        "dark mode", "light mode", "night mode",
+        "do not disturb", "dnd", "focus mode",
+        "clipboard", "what did i copy",
+        "minimize", "maximize", "maximise", "close window", "hide all",
+        "wifi", "wi-fi", "bluetooth",
+        "empty trash", "lock screen", "lock laptop",
+        "shutdown", "shut down", "restart", "reboot",
+        "sleep mode", "hibernate",
+    ]):
+        return {"agent": "system", "command": command}
 
     # Fast-path: Automation (opening profiles, PDFs, and key websites/apps)
     if "open" in cmd and any(app in cmd for app in ["linkedin", "github", "git hub", "instagram", "insta", "portfolio", "youtube", "whatsapp", "vs code", "vscode", "jarvis", "pdf", "download"]):
