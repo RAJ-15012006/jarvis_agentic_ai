@@ -1079,7 +1079,7 @@ def execute_automation(command: str) -> str:
                         query = candidate
                         break
 
-            # Open the AI site
+            # Open the AI site — backend opens it, return url so frontend does NOT open again
             webbrowser.open(ai_info["url"])
             time.sleep(ai_info["wait"])  # Wait for page to fully load
 
@@ -1088,8 +1088,8 @@ def execute_automation(command: str) -> str:
                 pyautogui.typewrite(query, interval=0.07)
                 time.sleep(0.5)
                 pyautogui.press('enter')
-                return f"Raj, asked {ai_label}: '{query}'.", ai_info["url"]
-            return f"Opening {ai_label}, Raj.", ai_info["url"]
+                return f"Raj, asked {ai_label}: '{query}'."  # no url returned — backend already opened it
+            return f"Opening {ai_label}, Raj."  # no url returned — backend already opened it
 
         # --- YouTube ---
         elif "youtube" in cmd:
@@ -1110,7 +1110,7 @@ def execute_automation(command: str) -> str:
                     _open_and_wait(url, wait=2, backend_open=False)
                     return f"Raj, showing YouTube search results for '{query}'.", url
                 else:
-                    # Autoplay first result
+                    # Autoplay first result — pywhatkit opens browser itself, don't return url
                     pywhatkit.playonyt(query)
                     return f"Playing {query} on YouTube, Raj."
             _open_and_wait("https://www.youtube.com", backend_open=False)
@@ -1120,7 +1120,7 @@ def execute_automation(command: str) -> str:
         elif "play" in cmd:
             song = cmd.split("play")[-1].strip()
             if song:
-                pywhatkit.playonyt(song)
+                pywhatkit.playonyt(song)  # pywhatkit opens browser itself, don't return url
                 return f"Playing {song} on YouTube, Raj."
             return "Raj, what should I play?"
 
@@ -1179,9 +1179,8 @@ def execute_automation(command: str) -> str:
         # --- Google Search ---
         elif "search" in cmd and "google" in cmd:
             query = cmd.split("search")[1].replace("on google", "").strip()
-            pywhatkit.search(query)
-            url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-            return f"Searching Google for {query}, Raj.", url
+            pywhatkit.search(query)  # pywhatkit opens browser itself, don't return url
+            return f"Searching Google for {query}, Raj."
 
         # --- Reminders ---
         elif any(word in cmd for word in ["remind", "note", "schedule"]):

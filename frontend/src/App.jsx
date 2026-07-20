@@ -1145,7 +1145,6 @@ function JarvisApp() {
               </div>
               <div className="w-[22rem] pointer-events-auto flex flex-col space-y-3">
                 <SystemLog logs={logs} />
-                <JarvisUpdate />
               </div>
             </div>
           </div>

@@ -96,6 +96,20 @@ main_loop = None
 
 async def execute_global_command(command: str):
     """Executes a voice command globally from the background mic thread."""
+    global system_unlocked, _command_executing
+    if not system_unlocked:
+        print("[SECURITY] Voice command ignored because system is locked.")
+        return
+    if _command_executing:
+        print("[GLOBAL CMD] Skipped — another command is already executing.")
+        return
+    _command_executing = True
+    try:
+        await _execute_global_command_inner(command)
+    finally:
+        _command_executing = False
+
+async def _execute_global_command_inner(command: str):
     global system_unlocked
     if not system_unlocked:
         print("[SECURITY] Voice command ignored because system is locked.")
@@ -700,6 +714,9 @@ SOCKET_SECRET = os.getenv("SOCKET_SECRET", "jarvis-local-secret")
 system_unlocked = False
 frontend_sid = None
 
+# Global command execution lock — prevents process_command and execute_global_command running simultaneously
+_command_executing = False
+
 # Per-session dismissed state: {sid: True/False}
 # When True, Jarvis quietly ignores all commands until re-engaged.
 _dismissed_sessions: dict = {}
@@ -820,10 +837,21 @@ async def disconnect(sid):
 
 @sio.event
 async def process_command(sid, data):
-    global system_unlocked
+    global system_unlocked, _command_executing
     if not system_unlocked:
         print(f"[SECURITY] Blocked process_command from {sid} since system is locked.")
         return
+    if _command_executing:
+        print(f"[PROCESS CMD] Skipped — another command is already executing.")
+        return
+    _command_executing = True
+    try:
+        await _process_command_inner(sid, data)
+    finally:
+        _command_executing = False
+
+async def _process_command_inner(sid, data):
+    global system_unlocked
     raw_command = data.get('command', '') if isinstance(data, dict) else ''
     audio_b64 = data.get('audio', '') if isinstance(data, dict) else ''
     now = _get_ist_time().strftime("%H:%M:%S")
