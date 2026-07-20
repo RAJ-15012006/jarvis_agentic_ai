@@ -232,6 +232,18 @@ export function BiometricsDashboard({ socket, voiceScore = null, faceScore = nul
     return () => socket.off('intruder_alert', handler);
   }, [socket, fetchLog]);
 
+  useEffect(() => {
+    if (voiceScore !== null) {
+      setLiveVoiceScore(voiceScore);
+    }
+  }, [voiceScore]);
+
+  useEffect(() => {
+    if (faceScore !== null) {
+      setLiveFaceScore(faceScore);
+    }
+  }, [faceScore]);
+
   // Register face handler
   const handleFaceRegister = async () => {
     setRegistering(true);
@@ -273,7 +285,8 @@ export function BiometricsDashboard({ socket, voiceScore = null, faceScore = nul
       maxWidth: '360px',
       boxShadow: '0 0 30px rgba(0,212,255,0.08), inset 0 1px 0 rgba(255,255,255,0.05)',
       position: 'relative',
-      overflow: 'hidden',
+      overflowY: 'auto',
+      maxHeight: 'calc(100vh - 220px)',
     }}>
       {/* Corner accent */}
       <div style={{

@@ -10,8 +10,9 @@
     <!-- The script to run on login -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>/Users/rajsamrendrakumar/Desktop/jarvis_main/jarvis_autostart.sh</string>
+        <string>open</string>
+        <string>-a</string>
+        <string>/Users/rajsamrendrakumar/Desktop/JARVIS.app</string>
     </array>
 
     <!-- Run automatically when user logs in -->

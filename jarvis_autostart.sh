@@ -8,7 +8,7 @@ JARVIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_PYTHON="$JARVIS_DIR/.venv/bin/python"
 BACKEND_DIR="$JARVIS_DIR/backend"
 LOG_FILE="$HOME/Library/Logs/jarvis_autostart.log"
-JARVIS_URL="http://127.0.0.1:8000"
+JARVIS_URL="http://localhost:8000"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 exec >> "$LOG_FILE" 2>&1
@@ -29,8 +29,8 @@ done
 
 # ── Kill any existing Jarvis process ─────────────────────────────────────────
 echo "[*] Stopping any existing Jarvis instance..."
-pkill -f "uvicorn.*main:socket_app" 2>/dev/null || true
-pkill -f "python.*main.py" 2>/dev/null || true
+pkill -fi "uvicorn.*main:socket_app" 2>/dev/null || true
+pkill -fi "python.*main.py" 2>/dev/null || true
 sleep 1
 
 # ── Start Jarvis backend ──────────────────────────────────────────────────────

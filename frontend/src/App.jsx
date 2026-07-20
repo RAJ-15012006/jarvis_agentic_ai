@@ -18,8 +18,25 @@ import { SpotifyWidget } from './components/SpotifyWidget';
 import { GitHubStatsWidget } from './components/GitHubStatsWidget';
 import { EmotionWidget } from './components/EmotionWidget';
 import jarvisAvatar from './assets/jarvis_avatar.jpg';
+import { HUDPanel } from './components/HUDPanel';
 
-const socket = io(window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin, { autoConnect: false, auth: { token: 'jarvis-local-secret' } });
+const socket = io(
+  window.location.origin.includes('localhost')
+    ? 'http://localhost:8000'
+    : (window.location.origin.includes('jarvis.weblog')
+      ? 'http://jarvis.weblog:8000'
+      : window.location.origin),
+  {
+    autoConnect: false,
+    auth: {
+      token: 'jarvis-local-secret',
+      client_type: 'frontend'
+    },
+    query: {
+      client_type: 'frontend'
+    }
+  }
+);
 
 // Secret voice passphrase — only Raj knows this
 const VOICE_PASSPHRASE = 'i am jarvis i need help';
@@ -140,7 +157,7 @@ function PasswordGate({ onUnlock }) {
   useEffect(() => {
     const checkVoiceRegistered = async () => {
       try {
-        const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+        const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
         const res = await fetch(`${baseUrl}/api/voice-status`);
         const data = await res.json();
         if (data.registered) {
@@ -204,9 +221,15 @@ function PasswordGate({ onUnlock }) {
     // Check if browser supports WebAuthn Touch ID (macOS platform authentication)
     if (window.PublicKeyCredential && 
         typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
+      let available = false;
       try {
-        const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-        if (available) {
+        available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      } catch (e) {
+        console.warn("Error checking platform authenticator availability:", e);
+      }
+      
+      if (available) {
+        try {
           setFpStatus('Place your finger on Touch ID sensor...');
           
           // Generate a cryptographically secure challenge
@@ -239,13 +262,17 @@ function PasswordGate({ onUnlock }) {
           setIsScanning(false);
           setTimeout(() => setStage('voice'), 1000);
           return;
+        } catch (err) {
+          console.warn("Touch ID credential request failed/cancelled:", err);
+          setFpStatus('Verification failed/cancelled. Try again.');
+          setIsScanning(false);
+          setFpProgress(0);
+          return; // Stop here, do not run simulated auto-unlock if user cancelled the prompt
         }
-      } catch (err) {
-        console.warn("Touch ID credential request failed/cancelled, falling back to simulated scan:", err);
       }
     }
     
-    // Fallback to simulation if cancelled or not supported
+    // Fallback to simulation ONLY if platform authenticator is not supported/available
     runFingerprintSimulation();
   };
 
@@ -289,7 +316,7 @@ function PasswordGate({ onUnlock }) {
         formData.append('files', blob, `sample_${idx}.wav`);
       });
 
-      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
       const res = await fetch(`${baseUrl}/api/voice-register`, {
         method: 'POST',
         body: formData
@@ -357,7 +384,7 @@ function PasswordGate({ onUnlock }) {
           const formData = new FormData();
           formData.append('file', audioBlob, 'verify.wav');
           
-          const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+          const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
           const res = await fetch(`${baseUrl}/api/voice-verify`, {
             method: 'POST',
             body: formData
@@ -492,6 +519,9 @@ function PasswordGate({ onUnlock }) {
                   To register, click start and say: <br />
                   <span className="text-white font-bold">"access the Raj Lab"</span>
                 </p>
+                <p className="text-jarvis-cyan/40 font-mono text-[9px] text-center mt-1">
+                  Mic blocked? Access via: <a href="http://localhost:8000" className="text-jarvis-cyan underline">http://localhost:8000</a>
+                </p>
                 
                 <button
                   type="button"
@@ -548,6 +578,9 @@ function PasswordGate({ onUnlock }) {
                 ) : (
                   <>
                     <p className="text-jarvis-cyan/70 font-mono text-xs text-center">Say: <span className="text-white font-bold">"I am Jarvis, I need help"</span></p>
+                    <p className="text-jarvis-cyan/40 font-mono text-[9px] text-center mt-1">
+                      Mic blocked? Access via: <a href="http://localhost:8000" className="text-jarvis-cyan underline">http://localhost:8000</a>
+                    </p>
                     
                     <button
                       onClick={startVoiceAuth}
@@ -618,7 +651,109 @@ function PasswordGate({ onUnlock }) {
   );
 }
 
+function JarvisUpdate() {
+  const [updating, setUpdating] = useState(false);
+  const [status, setStatus] = useState('SYSTEM OPTIMAL'); // 'SYSTEM OPTIMAL' | 'UPDATING' | 'COMPLETED'
+  const [progress, setProgress] = useState(100);
+  const [message, setMessage] = useState('JARVIS Core is running latest build.');
+
+  const triggerUpdate = async () => {
+    if (updating) return;
+    setUpdating(true);
+    setStatus('UPDATING');
+    setProgress(0);
+    setMessage('Initializing connection to main core...');
+
+    const steps = [
+      { p: 15, m: 'Checking local repository files...' },
+      { p: 40, m: 'Downloading JARVIS-PATCH-1.0.1...' },
+      { p: 70, m: 'Applying changes to voice and security modules...' },
+      { p: 90, m: 'Finalizing core compilation...' },
+      { p: 100, m: 'Core successfully patched.' }
+    ];
+
+    for (const step of steps) {
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setProgress(step.p);
+      setMessage(step.m);
+    }
+
+    try {
+      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
+      const res = await fetch(`${baseUrl}/api/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus('COMPLETED');
+        setMessage('V1.0.1 Core active. Update completed.');
+      } else {
+        setStatus('SYSTEM OPTIMAL');
+        setMessage('Update failed. Core remains stable.');
+      }
+    } catch {
+      setStatus('SYSTEM OPTIMAL');
+      setMessage('Network error. Try again.');
+    }
+    
+    setUpdating(false);
+  };
+
+  return (
+    <HUDPanel title="Core Update Manager" className="h-44">
+      <div className="flex flex-col h-full justify-between font-mono text-xs text-jarvis-cyan">
+        <div className="space-y-1">
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] text-jarvis-cyan/60">CORE ENGINE:</span>
+            <span className={`font-bold ${status === 'UPDATING' ? 'text-amber-400 animate-pulse' : 'text-jarvis-cyan'}`}>
+              {status}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] text-jarvis-cyan/60">CURRENT BUILD:</span>
+            <span>{status === 'COMPLETED' ? 'v1.0.1 (Stable)' : 'v1.0.0 (Stable)'}</span>
+          </div>
+          <p className="text-[10px] text-jarvis-cyan/80 leading-relaxed mt-2 min-h-[32px]">
+            {message}
+          </p>
+        </div>
+
+        {status === 'UPDATING' && (
+          <div className="w-full space-y-1 my-1">
+            <div className="w-full h-1.5 bg-jarvis-cyan/10 rounded-full overflow-hidden relative">
+              <div 
+                className="h-full bg-jarvis-cyan transition-all duration-300 shadow-[0_0_8px_#00ffd1]"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[8px] text-jarvis-cyan/40">
+              <span>PATCHING CORE</span>
+              <span>{progress}% COMPLETE</span>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={triggerUpdate}
+          disabled={updating}
+          className={`w-full py-1.5 border font-orbitron text-[9px] tracking-widest transition-all rounded ${
+            updating 
+              ? 'border-amber-500/50 text-amber-500 bg-amber-500/10 cursor-not-allowed animate-pulse'
+              : status === 'COMPLETED'
+              ? 'border-jarvis-cyan/30 text-jarvis-cyan/50 cursor-default'
+              : 'border-jarvis-cyan/50 text-jarvis-cyan hover:bg-jarvis-cyan/10 hover:shadow-[0_0_10px_rgba(0,255,209,0.2)]'
+          }`}
+        >
+          {updating ? 'APPLYING HOT-PATCH' : status === 'COMPLETED' ? 'CORE UP TO DATE' : 'CHECK & UPDATE CORE'}
+        </button>
+      </div>
+    </HUDPanel>
+  );
+}
+
 function JarvisApp() {
+  const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
   const [logs, setLogs] = useState([]);
   const [activityState, setActivityState] = useState('STANDBY');
   const [liveTranscript, setLiveTranscript] = useState('> Click anywhere to activate mic...');
@@ -673,8 +808,7 @@ function JarvisApp() {
     socket.connect();
 
     socket.on('connect', () => {
-      // Automatically activate session on socket connect since user already consented
-      socket.emit('process_command', { command: 'yes' });
+      // Session is already active and backend welcomes us automatically.
       setTimeout(() => startMic(), 1200);
     });
 
@@ -705,6 +839,17 @@ function JarvisApp() {
       }
     });
 
+    socket.on('scroll_tab', (data) => {
+      const amount = data.amount || 600;
+      window.scrollBy({ top: data.direction === 'down' ? amount : -amount, behavior: 'smooth' });
+    });
+
+    socket.on('execute_in_tab', (data) => {
+      if (data.code) {
+        try { eval(data.code); } catch (e) { console.warn('[execute_in_tab]', e); }
+      }
+    });
+
     socket.on('activity_state', (data) => {
       setActivityState(data.state);
       if (data.state === 'PROCESSING' || data.state === 'SPEAKING') {
@@ -726,7 +871,7 @@ function JarvisApp() {
     // Proactive message polling — check every 30s for JARVIS-initiated messages
     const proactivePoll = setInterval(async () => {
       try {
-        const res = await fetch('/api/proactive-poll');
+        const res = await fetch(`${baseUrl}/api/proactive-poll`);
         const data = await res.json();
         if (data.has_message && data.message) {
           setProactiveMsg(data.message);
@@ -819,7 +964,7 @@ function JarvisApp() {
   }, [showConsent]);
 
   return (
-    <div className="w-screen h-screen relative overflow-hidden">
+    <div className="min-h-screen w-screen relative overflow-y-auto">
       <div className="scanlines"></div>
       <Globe3D />
       <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
@@ -998,8 +1143,9 @@ function JarvisApp() {
               <div className="flex-1 px-8 pointer-events-auto flex justify-center pb-2">
                 <GreetingCard />
               </div>
-              <div className="w-[22rem] pointer-events-auto">
+              <div className="w-[22rem] pointer-events-auto flex flex-col space-y-3">
                 <SystemLog logs={logs} />
+                <JarvisUpdate />
               </div>
             </div>
           </div>

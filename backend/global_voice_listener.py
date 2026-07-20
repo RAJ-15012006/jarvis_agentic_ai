@@ -100,6 +100,14 @@ def run_listener():
                     if text:
                         cleaned = text.replace("hey jarvis", "").replace("jarvis", "").strip()
                         if cleaned:
+                            # Check if JARVIS is currently speaking — skip to avoid TTS feedback loop
+                            try:
+                                speaking_resp = requests.get("http://127.0.0.1:8000/api/speaking-status", timeout=1)
+                                if speaking_resp.ok and speaking_resp.json().get("speaking", False):
+                                    print(f"[VOICE LISTENER] Skipped '{cleaned}' — JARVIS is speaking.")
+                                    continue
+                            except Exception:
+                                pass
                             print(f"[VOICE LISTENER] Heard: '{cleaned}' (Posting to server...)")
                             resp = requests.post(API_URL, json={"command": cleaned}, timeout=5)
                             print(f"[VOICE LISTENER] Server response: {resp.status_code}")

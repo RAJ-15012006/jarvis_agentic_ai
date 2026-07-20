@@ -390,15 +390,32 @@ def handle_empty_trash(cmd: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def handle_create_and_write_code(cmd: str) -> str:
-    """Create a folder on the Desktop and write a generated Python script inside it."""
+    """Create a folder and write a generated Python script inside it."""
     import json
     from groq import Groq
     
+    # 1. Determine base path using heuristic fallback
+    base_dir = os.path.expanduser("~/Desktop")
+    target_name = "Desktop"
+    cmd_lower = cmd.lower()
+    
+    if "download" in cmd_lower:
+        base_dir = os.path.expanduser("~/Downloads")
+        target_name = "Downloads"
+    elif "document" in cmd_lower:
+        base_dir = os.path.expanduser("~/Documents")
+        target_name = "Documents"
+    elif "desktop" in cmd_lower or "home screen" in cmd_lower or "homescreen" in cmd_lower:
+        base_dir = os.path.expanduser("~/Desktop")
+        target_name = "Desktop"
+    elif "home" in cmd_lower:
+        base_dir = os.path.expanduser("~")
+        target_name = "Home"
+
     api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key or api_key == "your_groq_api_key_here":
         # Heuristic fallback if Groq is unavailable
-        desktop_path = os.path.expanduser("~/Desktop")
-        folder_path = os.path.join(desktop_path, "JarvisProject")
+        folder_path = os.path.join(base_dir, "JarvisProject")
         os.makedirs(folder_path, exist_ok=True)
         file_path = os.path.join(folder_path, "main.py")
         fallback_code = 'print("Hello from JARVIS!")\n'
@@ -406,24 +423,26 @@ def handle_create_and_write_code(cmd: str) -> str:
             f.write(fallback_code)
         if IS_MAC:
             subprocess.Popen(["open", folder_path])
-        return "Raj, I created a folder named 'JarvisProject' and wrote a default main.py inside it."
+        return f"Raj, I created a folder named 'JarvisProject' in your {target_name} and wrote a default main.py inside it."
 
     try:
         client = Groq(api_key=api_key)
         prompt = f"""
-        Extract or generate the folder name, file name, and Python code from the user request: "{cmd}"
-        The goal is to create a folder on the Desktop and write a Python script inside it.
+        Extract or generate the folder name, file name, Python code, and target location from the user request: "{cmd}"
         
         Guidelines:
         - "folder_name": Extracted folder name (capitalized/camelCase, e.g., "ChatbotProject"). If not specified, use "JarvisApp".
         - "file_name": The target Python filename (e.g. "chatbot.py", "main.py").
-        - "code": Generate complete, fully-functional, clean, commented Python code fulfilling the request (e.g., a chatbot, a weather fetcher, a web scraper, or calculator).
+        - "code": Generate complete, fully-functional, clean, commented Python code fulfilling the request.
+          CRITICAL: Use only single quotes for strings and only '#' for comments in the Python code. Do NOT use triple double-quotes (\\\"\\\"\\\") or triple single-quotes (''') anywhere, as it breaks JSON. All newlines in the code must be escaped as \\n.
+        - "target_location": The target directory. Must be one of: "desktop" (use this also for "home screen" or "homescreen"), "downloads", "documents", "home". Defaults to "desktop".
 
-        Respond strictly in JSON:
+        Respond strictly in valid JSON format:
         {{
           "folder_name": "folder_name",
           "file_name": "file_name",
-          "code": "Python code here"
+          "code": "Python code here",
+          "target_location": "target_location"
         }}
         """
         
@@ -438,15 +457,28 @@ def handle_create_and_write_code(cmd: str) -> str:
         folder_name = res_data.get("folder_name", "JarvisApp").strip()
         file_name = res_data.get("file_name", "main.py").strip()
         code_content = res_data.get("code", "")
+        extracted_loc = res_data.get("target_location", "").strip().lower()
         
+        if extracted_loc == "downloads":
+            base_dir = os.path.expanduser("~/Downloads")
+            target_name = "Downloads"
+        elif extracted_loc == "documents":
+            base_dir = os.path.expanduser("~/Documents")
+            target_name = "Documents"
+        elif extracted_loc == "home":
+            base_dir = os.path.expanduser("~")
+            target_name = "Home"
+        else:
+            base_dir = os.path.expanduser("~/Desktop")
+            target_name = "Desktop"
+            
         # Sanitize folder/file names
         folder_name = re.sub(r'[^\w\-_]', '_', folder_name)
         if not file_name.endswith(".py"):
             file_name += ".py"
         file_name = re.sub(r'[^\w\-_.]', '_', file_name)
         
-        desktop_path = os.path.expanduser("~/Desktop")
-        folder_path = os.path.join(desktop_path, folder_name)
+        folder_path = os.path.join(base_dir, folder_name)
         os.makedirs(folder_path, exist_ok=True)
         
         file_path = os.path.join(folder_path, file_name)
@@ -456,25 +488,99 @@ def handle_create_and_write_code(cmd: str) -> str:
         if IS_MAC:
             subprocess.Popen(["open", folder_path])
             
-        return f"Raj, I created the folder '{folder_name}' on your Desktop and wrote '{file_name}' inside it."
+        return f"Raj, I created the folder '{folder_name}' in your {target_name} folder and wrote '{file_name}' inside it."
     except Exception as e:
         return f"Raj, failed to create project: {e}"
 
 
 def handle_create_folder(cmd: str) -> str:
+    import json
+    from groq import Groq
+    
+    # 1. Determine base path using heuristic fallback
+    base_dir = os.path.expanduser("~/Desktop")
+    target_name = "Desktop"
+    cmd_lower = cmd.lower()
+    
+    if "download" in cmd_lower:
+        base_dir = os.path.expanduser("~/Downloads")
+        target_name = "Downloads"
+    elif "document" in cmd_lower:
+        base_dir = os.path.expanduser("~/Documents")
+        target_name = "Documents"
+    elif "desktop" in cmd_lower or "home screen" in cmd_lower or "homescreen" in cmd_lower:
+        base_dir = os.path.expanduser("~/Desktop")
+        target_name = "Desktop"
+    elif "home" in cmd_lower:
+        base_dir = os.path.expanduser("~")
+        target_name = "Home"
+
     folder_name = "NewFolder"
-    for prefix in ["make folder", "create folder", "new folder"]:
-        if prefix in cmd:
+    for prefix in ["make folder", "create folder", "new folder", "make a folder", "create a folder"]:
+        if prefix in cmd_lower:
             parts = cmd.split(prefix, 1)
             if len(parts) > 1 and parts[1].strip():
-                folder_name = parts[1].strip().title()
+                # Extract potential folder name (remove location words)
+                raw_name = parts[1].strip()
+                # Clean up common trailing target descriptions like "in downloads", "on desktop"
+                raw_name = re.split(r'\s+(?:in|on|at|inside)\s+', raw_name, maxsplit=1)[0].strip()
+                if raw_name:
+                    folder_name = raw_name.title()
             break
-    desktop_path = os.path.expanduser("~/Desktop")
-    folder_path = os.path.join(desktop_path, folder_name)
+
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if api_key and api_key != "your_groq_api_key_here":
+        try:
+            client = Groq(api_key=api_key)
+            prompt = f"""
+            Extract the folder name and target location from the user request: "{cmd}"
+            
+            Guidelines:
+            - "folder_name": The folder name to create (capitalized/camelCase, e.g., "MyFolder"). If not specified or vague, use "NewFolder".
+            - "target_location": The target directory. Must be one of: "desktop" (use this also for "home screen" or "homescreen"), "downloads", "documents", "home". Defaults to "desktop".
+
+            Respond strictly in JSON:
+            {{
+              "folder_name": "folder_name",
+              "target_location": "target_location"
+            }}
+            """
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.2
+            )
+            res_data = json.loads(response.choices[0].message.content)
+            extracted_folder = res_data.get("folder_name", "").strip()
+            extracted_loc = res_data.get("target_location", "").strip().lower()
+            
+            if extracted_folder:
+                folder_name = extracted_folder
+            if extracted_loc == "downloads":
+                base_dir = os.path.expanduser("~/Downloads")
+                target_name = "Downloads"
+            elif extracted_loc == "documents":
+                base_dir = os.path.expanduser("~/Documents")
+                target_name = "Documents"
+            elif extracted_loc == "home":
+                base_dir = os.path.expanduser("~")
+                target_name = "Home"
+            else:
+                base_dir = os.path.expanduser("~/Desktop")
+                target_name = "Desktop"
+        except Exception:
+            pass  # Fall back to heuristic values
+
+    # Sanitize folder name
+    folder_name = re.sub(r'[^\w\-_]', '_', folder_name)
+    folder_path = os.path.join(base_dir, folder_name)
     os.makedirs(folder_path, exist_ok=True)
+    
     if IS_MAC:
         subprocess.Popen(["open", folder_path])
-    return f"Raj, created folder '{folder_name}' on your Desktop."
+        
+    return f"Raj, created folder '{folder_name}' in your {target_name} folder."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main dispatcher
@@ -539,11 +645,15 @@ def execute_system_command(command: str) -> str:
             return handle_system_info(cmd)
 
         # ── Folder & Code Creation ───────────────────────────────────────────
-        if any(p in cmd for p in ["make folder", "create folder", "new folder"]) and any(k in cmd for k in ["write", "python", "code", "file", "script"]):
-            return handle_create_and_write_code(cmd)
-
-        elif any(p in cmd for p in ["make folder", "create folder", "new folder"]):
-            return handle_create_folder(cmd)
+        is_folder_cmd = "folder" in cmd or "directory" in cmd
+        is_create_cmd = any(p in cmd for p in ["make", "create", "new", "generate", "write", "setup"])
+        
+        if is_folder_cmd and is_create_cmd:
+            has_code = any(k in cmd for k in ["write", "python", "code", "file", "script", "program"])
+            if has_code:
+                return handle_create_and_write_code(cmd)
+            else:
+                return handle_create_folder(cmd)
 
         # ── Lock ─────────────────────────────────────────────────────────────
         if any(p in cmd for p in ["lock", "lock screen", "lock laptop"]):
@@ -563,19 +673,11 @@ def execute_system_command(command: str) -> str:
 
         # ── Shutdown ─────────────────────────────────────────────────────────
         if any(p in cmd for p in ["shut down", "shutdown", "power off", "turn off laptop"]):
-            if IS_MAC:
-                _osascript('tell app "System Events" to shut down')
-            else:
-                subprocess.run(["shutdown", "/s", "/t", "5"])
-            return "Shutting down, Raj."
+            return "Raj, shutdown capability is disabled for safety."
 
         # ── Restart ──────────────────────────────────────────────────────────
         if any(p in cmd for p in ["restart", "reboot"]):
-            if IS_MAC:
-                _osascript('tell app "System Events" to restart')
-            else:
-                subprocess.run(["shutdown", "/r", "/t", "5"])
-            return "Restarting, Raj."
+            return "Raj, restart capability is disabled for safety."
 
         # ── Run Terminal Command ──────────────────────────────────────────────
         if "run command" in cmd:

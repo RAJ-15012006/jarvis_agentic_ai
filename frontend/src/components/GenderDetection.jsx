@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 
 const BASE_URL = window.location.origin.includes('localhost')
   ? 'http://localhost:8000'
-  : window.location.origin;
+  : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
 
 const genderConfig = {
   Boy:  { color: '#38bdf8', label: 'MALE / BOY',   icon: '♂', glow: 'rgba(56,189,248,0.35)' },

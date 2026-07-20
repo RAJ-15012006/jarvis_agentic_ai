@@ -202,11 +202,13 @@ def route_command(command: str) -> dict:
         "empty trash", "lock screen", "lock laptop",
         "shutdown", "shut down", "restart", "reboot",
         "sleep mode", "hibernate",
+        "make folder", "create folder", "new folder", "make a folder", "create a folder",
+        "folder", "directory",
     ]):
         return {"agent": "system", "command": command}
 
     # Fast-path: Automation (opening profiles, PDFs, and key websites/apps)
-    if "open" in cmd and any(app in cmd for app in ["linkedin", "github", "git hub", "instagram", "insta", "portfolio", "youtube", "whatsapp", "vs code", "vscode", "jarvis", "pdf", "download"]):
+    if "open" in cmd and any(app in cmd for app in ["linkedin", "github", "git hub", "instagram", "insta", "portfolio", "youtube", "whatsapp", "vs code", "vscode", "jarvis", "pdf", "download", "phone booth", "photo booth", "phonebooth", "camera"]):
         return {"agent": "automation", "command": command}
 
     # Fast-path: Morning briefing

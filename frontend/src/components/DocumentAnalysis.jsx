@@ -22,7 +22,7 @@ export const DocumentAnalysis = () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+    const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
 
     try {
       const res = await fetch(`${baseUrl}/api/upload`, {

@@ -1,7 +1,7 @@
 // popup.js — JARVIS Extension Popup Logic
 
 document.getElementById("openJarvis").addEventListener("click", () => {
-  chrome.tabs.create({ url: "http://127.0.0.1:8000" });
+  chrome.tabs.create({ url: "http://localhost:8000" });
   window.close();
 });
 
@@ -12,7 +12,7 @@ document.getElementById("closeTab").addEventListener("click", () => {
 });
 
 // Check if JARVIS server is running
-fetch("http://127.0.0.1:8000/api", { method: "GET" })
+fetch("http://localhost:8000/api", { method: "GET" })
   .then((res) => res.json())
   .then((data) => {
     if (data.status && data.status.includes("JARVIS")) {

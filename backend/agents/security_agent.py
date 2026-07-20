@@ -202,18 +202,8 @@ def lock_screen_with_photo() -> tuple:
 
 
 def shutdown_system() -> str:
-    """Immediately shut down the system."""
-    try:
-        if IS_MAC:
-            subprocess.Popen([
-                "osascript", "-e",
-                'tell app "System Events" to shut down'
-            ])
-        else:
-            subprocess.Popen(["shutdown", "/s", "/t", "5"])
-        return "Understood, Sir. Shutting down now. Goodbye."
-    except Exception as e:
-        return f"Raj, shutdown failed: {e}"
+    """Immediately shut down the system (Disabled for safety)."""
+    return "Raj, shutdown capability is disabled for safety."
 
 
 def close_all_chrome_tabs() -> str:

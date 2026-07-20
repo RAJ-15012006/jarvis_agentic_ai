@@ -6,7 +6,8 @@ export const GreetingCard = () => {
   const [recommendation, setRecommendation] = useState("Initializing ML predictive core...");
 
   useEffect(() => {
-    fetch(window.location.origin.includes('localhost') ? 'http://localhost:8000/api/recommendation' : '/api/recommendation')
+    const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
+    fetch(`${baseUrl}/api/recommendation`)
       .then(res => res.json())
       .then(data => setRecommendation(data.recommendation))
       .catch(() => setRecommendation("Standing by for instructions."));

@@ -2,29 +2,18 @@ import React, { useEffect } from 'react';
 
 export const VoiceSelector = ({ onComplete }) => {
   useEffect(() => {
-    const saved = localStorage.getItem('jarvis_voice');
-    if (saved) {
-      // Sync with backend on startup
-      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
-      fetch(`${baseUrl}/api/voice`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gender: saved })
-      }).catch(() => {});
-      
-      // Commented out to ensure we always ask the user for male or female voice
-      // onComplete();
-    }
-  }, [onComplete]);
+    // Do NOT auto-call /api/voice on mount — that sets auth_just_completed=True
+    // and causes a duplicate welcome greeting. Only call it when user picks a voice.
+  }, []);
 
   const selectVoice = async (gender) => {
     localStorage.setItem('jarvis_voice', gender);
-    const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : window.location.origin;
+    const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
     try {
       await fetch(`${baseUrl}/api/voice`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gender })
+        body: JSON.stringify({ gender, auth_complete: true })
       });
     } catch { /* voice sync is best-effort */ }
     onComplete();

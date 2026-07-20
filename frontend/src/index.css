@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-black text-jarvis-cyan overflow-hidden select-none font-rajdhani;
+    @apply bg-black text-jarvis-cyan overflow-y-auto select-none font-rajdhani;
     background-image: 
       radial-gradient(circle at 50% 50%, rgba(0, 255, 209, 0.15) 0%, rgba(0,0,0,1) 60%),
       linear-gradient(rgba(0, 255, 209, 0.03) 1px, transparent 1px),

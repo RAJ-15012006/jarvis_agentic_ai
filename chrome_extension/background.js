@@ -98,7 +98,7 @@ async function handleJarvisEvent(event, data) {
       for (const win of windows) {
         for (const tab of win.tabs) {
           // Don't close the Jarvis UI tab itself
-          if (!tab.url.includes("127.0.0.1:8000") && !tab.url.includes("localhost:8000")) {
+          if (!tab.url.includes("127.0.0.1:8000") && !tab.url.includes("localhost:8000") && !tab.url.includes("jarvis.weblog")) {
             await chrome.tabs.remove(tab.id).catch(() => {});
           }
         }

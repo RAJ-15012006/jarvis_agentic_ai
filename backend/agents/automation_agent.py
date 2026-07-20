@@ -804,6 +804,7 @@ MAC_APPS = {
     "photo hood":         "Photo Booth",   # voice mis-recognition
     "phone hood":         "Photo Booth",   # voice mis-recognition
     "phonebooth":         "Photo Booth",
+    "phone booth":         "Photo Booth",
     "camera":             "Photo Booth",   # 'open camera' → Photo Booth
     "image capture":      "Image Capture",
     "quicktime":          "QuickTime Player",
@@ -923,8 +924,8 @@ def execute_automation(command: str) -> str:
         # --- Open JARVIS itself ---
         if "open jarvis" in cmd or "launch jarvis" in cmd:
             _focus_chrome()
-            _open_and_wait("http://127.0.0.1:8000")
-            return "Opening my interface, Sir.", "http://127.0.0.1:8000"
+            _open_and_wait("http://localhost:8000")
+            return "Opening my interface, Sir.", "http://localhost:8000"
 
         # --- Open VS Code ---
         if "open vs code" in cmd or "open vscode" in cmd or "launch vs code" in cmd:

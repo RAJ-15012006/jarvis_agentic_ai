@@ -71,6 +71,9 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://jarvis.weblog:8000",
+    "http://jarvis.weblog:5173",
+    "http://jarvis.weblog",
 ]
 
 app.add_middleware(
@@ -93,6 +96,10 @@ main_loop = None
 
 async def execute_global_command(command: str):
     """Executes a voice command globally from the background mic thread."""
+    global system_unlocked
+    if not system_unlocked:
+        print("[SECURITY] Voice command ignored because system is locked.")
+        return
     now = datetime.datetime.now().strftime("%H:%M:%S")
     # Interrupt any active speech
     interrupt()
@@ -115,7 +122,7 @@ async def execute_global_command(command: str):
                 repeat with w in windows
                     set tabIndex to 1
                     repeat with t in tabs of w
-                        if (URL of t contains "localhost:8000") or (URL of t contains "127.0.0.1:8000") then
+                        if (URL of t contains "localhost:8000") or (URL of t contains "127.0.0.1:8000") or (URL of t contains "jarvis.weblog") then
                             set active tab index of w to tabIndex
                             set index of w to 1
                             set foundTab to true
@@ -138,10 +145,9 @@ async def execute_global_command(command: str):
     await sio.emit('activity_state', {'state': 'PROCESSING'})
     
     if is_shutdown_command(command):
-        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Initiating system shutdown, Sir."})
+        await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': "Shutdown capability is disabled for safety, Sir."})
         await sio.emit('activity_state', {'state': 'SPEAKING'})
-        await asyncio.to_thread(speak_text, "Understood, Sir. Shutting down now. Goodbye.")
-        shutdown_system()
+        await asyncio.to_thread(speak_text, "Shutdown capability is disabled for safety, Sir.")
         return
 
     if is_close_all_tabs_command(command):
@@ -234,6 +240,16 @@ from fastapi import Request
 @app.post("/api/voice-command")
 async def voice_command_endpoint(request: Request):
     """Receives voice commands from the standalone voice listener process."""
+    global system_unlocked
+    if not system_unlocked:
+        return {"success": False, "error": "System is locked. Authentication required."}
+        
+    # Ignore commands from the background mic if Jarvis is currently speaking (feedback prevention)
+    from voice import is_speaking
+    if is_speaking():
+        print("[VOICE COMMAND] Ignored voice command since Jarvis is speaking.")
+        return {"success": False, "error": "Jarvis is speaking"}
+
     try:
         data = await request.json()
         command = data.get("command", "").strip()
@@ -278,20 +294,49 @@ async def startup_event():
         print(f"[STARTUP ERROR] Could not spawn standalone voice listener: {e}")
 
 
+@app.get("/api/speaking-status")
+async def speaking_status():
+    """Returns whether JARVIS is currently speaking — used by global_voice_listener to prevent TTS feedback."""
+    from voice import is_speaking
+    return {"speaking": is_speaking()}
+
 @app.get("/api/recommendation")
 async def get_recommendation():
     """Returns a machine-learning powered prediction of user needs."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     import asyncio
     prediction = await asyncio.to_thread(predict_user_needs)
     return {"recommendation": prediction}
 
+auth_just_completed = False
+
 from fastapi import Request, File, UploadFile
 @app.post("/api/voice")
 async def update_voice(request: Request):
+    global auth_just_completed
     data = await request.json()
     gender = data.get("gender", "male")
     set_voice(gender)
+    # Only trigger welcome greeting if this is a fresh auth selection (not a reconnect sync)
+    if data.get("auth_complete", False):
+        auth_just_completed = True
     return {"status": "success", "voice": gender}
+
+@app.post("/api/update")
+async def update_system():
+    """Simulates a hot-patch/update to the core systems."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
+    try:
+        from voice import speak_text
+        # Play completion audio
+        await asyncio.to_thread(speak_text, "Core update completed successfully, Sir. All systems are running on the latest version.")
+        return {"success": True, "message": "Core update completed."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @app.get("/api/voice-status")
 async def voice_status():
@@ -354,6 +399,9 @@ async def face_register():
 @app.get("/api/intruder-log")
 async def intruder_log():
     """Returns list of intruder photo events for the BiometricsDashboard."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     try:
         entries = get_intruder_log()
         return {"success": True, "events": entries, "count": len(entries)}
@@ -363,6 +411,9 @@ async def intruder_log():
 @app.get("/api/emotion-state")
 async def emotion_state():
     """Returns the latest detected emotion state for the frontend."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     try:
         state = get_current_emotion_state()
         return {"success": True, **state}
@@ -372,6 +423,9 @@ async def emotion_state():
 @app.get("/api/proactive-poll")
 async def proactive_poll():
     """Polls for any pending proactive messages from JARVIS."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     try:
         msg = get_pending_proactive_message()
         if msg:
@@ -383,6 +437,9 @@ async def proactive_poll():
 @app.get("/api/github-stats")
 async def github_stats_endpoint():
     """Returns live GitHub stats for the HUD widget."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     try:
         from agents.github_stats_agent import get_profile_stats, get_recent_activity
         stats_text = await asyncio.to_thread(get_profile_stats)
@@ -394,6 +451,9 @@ async def github_stats_endpoint():
 @app.get("/api/spotify-now-playing")
 async def spotify_now_playing():
     """Returns the currently playing Spotify track."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     try:
         from agents.spotify_agent import get_now_playing
         result = await asyncio.to_thread(get_now_playing)
@@ -403,6 +463,9 @@ async def spotify_now_playing():
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     # Create temp directory
     temp_dir = os.path.join(os.path.dirname(__file__), "temp")
     os.makedirs(temp_dir, exist_ok=True)
@@ -472,6 +535,9 @@ async def upload_pdf(file: UploadFile = File(...)):
 @app.post("/api/analyze-gender")
 async def analyze_gender(file: UploadFile = File(...)):
     """Analyze an uploaded image and detect if person is a boy or girl using Groq Vision."""
+    if not system_unlocked:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="System locked")
     import base64
 
     allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jpg"]
@@ -630,6 +696,10 @@ def _pollinations_url(prompt: str) -> str:
 
 SOCKET_SECRET = os.getenv("SOCKET_SECRET", "jarvis-local-secret")
 
+# System unlock state — managed by the React frontend connection
+system_unlocked = False
+frontend_sid = None
+
 # Per-session dismissed state: {sid: True/False}
 # When True, Jarvis quietly ignores all commands until re-engaged.
 _dismissed_sessions: dict = {}
@@ -667,23 +737,8 @@ def _sanitize_command(command: str) -> tuple[bool, str]:
     cleaned = "".join(c for c in command if c.isprintable())
     return True, cleaned.strip()
 
-@sio.event
-async def connect(sid, environ, auth=None):
-    token = (auth or {}).get("token", "")
-    if not token:
-        from urllib.parse import parse_qs
-        query_string = environ.get("QUERY_STRING", "")
-        params = parse_qs(query_string)
-        token = params.get("token", [""])[0]
-
-    if token != SOCKET_SECRET:
-        print(f"Rejected unauthorized connection: {sid}")
-        raise ConnectionRefusedError("Unauthorized")
-    print(f"Frontend connected: {sid}")
-
-@sio.event
-async def authenticate(sid, data):
-    print(f"Client {sid} authenticated via event.")
+async def play_welcome_greeting(sid):
+    # Trigger welcome greeting for Raj
     ist = _get_ist_time()
     hour = ist.hour
     if   hour < 12: greeting = "Good morning, Sir."
@@ -693,28 +748,82 @@ async def authenticate(sid, data):
 
     city, region, country = _get_location()
     time_str = ist.strftime("%I:%M %p")
-
-    # ── Greeting + Consent Gate ──────────────────────────────────────────────
-    # Jarvis greets and ASKS before doing anything. If declined, goes to DISMISSED.
+    
     _dismissed_sessions[sid] = False   # default: active
     consent_message = (
-        f"{greeting} JARVIS is online. It is {time_str} and you are in {city}, {country}. "
-        f"Do you require my assistance today, Sir?"
+        f"{greeting} Access granted. Welcome to the Raj Lab. It is {time_str} and you are in {city}, {country}. "
+        f"JARVIS is ready for your instructions."
     )
-    await sio.emit('system_log', {'time': ist.strftime("%H:%M:%S"), 'type': 'jarvis', 'message': consent_message}, room=sid)
-    await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
-    await asyncio.to_thread(speak_text, consent_message)
-    await sio.emit('activity_state', {'state': 'LISTENING'}, room=sid)
+    try:
+        await sio.emit('system_log', {'time': ist.strftime("%H:%M:%S"), 'type': 'jarvis', 'message': consent_message}, room=sid)
+        await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
+        await asyncio.to_thread(speak_text, consent_message)
+        await sio.emit('activity_state', {'state': 'LISTENING'}, room=sid)
+    except Exception as e:
+        print(f"[SECURITY ERROR] Welcome greeting exception: {e}")
+
+@sio.event
+async def connect(sid, environ, auth=None):
+    global system_unlocked, frontend_sid
+    token = (auth or {}).get("token", "")
+    client_type = (auth or {}).get("client_type", "")
+    
+    if not token or not client_type:
+        from urllib.parse import parse_qs
+        query_string = environ.get("QUERY_STRING", "")
+        params = parse_qs(query_string)
+        if not token:
+            token = params.get("token", [""])[0]
+        if not client_type:
+            client_type = params.get("client_type", [""])[0]
+
+    if token != SOCKET_SECRET:
+        print(f"Rejected unauthorized connection: {sid}")
+        raise ConnectionRefusedError("Unauthorized")
+    
+    # Robust fallback: identify frontend by checking HTTP_ORIGIN or HTTP_REFERER if client_type is not provided
+    if not client_type:
+        origin = environ.get("HTTP_ORIGIN", "") or environ.get("HTTP_REFERER", "")
+        if "localhost" in origin or "127.0.0.1" in origin or "jarvis.weblog" in origin:
+            client_type = "frontend"
+    
+    print(f"Frontend connected: {sid} (Client type: {client_type})")
+    
+    if client_type == "frontend":
+        system_unlocked = True
+        frontend_sid = sid
+        print(f"[SECURITY] Frontend connected: {sid}. System unlocked.")
+        
+        global auth_just_completed
+        if auth_just_completed:
+            auth_just_completed = False
+            # Run welcome greeting as a background task to prevent blocking connection handshake
+            asyncio.create_task(play_welcome_greeting(sid))
+        else:
+            print(f"[SECURITY] Reconnection/duplicate socket {sid} ignored for welcome greeting.")
+
+@sio.event
+async def authenticate(sid, data):
+    print(f"Client {sid} authenticated via event (Extension connection).")
 
 @sio.event
 async def disconnect(sid):
+    global system_unlocked, frontend_sid
     print(f"Frontend disconnected: {sid}")
     clear_session(sid)
     _rate_limit.pop(sid, None)
     _dismissed_sessions.pop(sid, None)
+    if sid == frontend_sid:
+        system_unlocked = False
+        frontend_sid = None
+        print("[SECURITY] Frontend disconnected. System locked.")
 
 @sio.event
 async def process_command(sid, data):
+    global system_unlocked
+    if not system_unlocked:
+        print(f"[SECURITY] Blocked process_command from {sid} since system is locked.")
+        return
     raw_command = data.get('command', '') if isinstance(data, dict) else ''
     audio_b64 = data.get('audio', '') if isinstance(data, dict) else ''
     now = _get_ist_time().strftime("%H:%M:%S")
@@ -768,7 +877,7 @@ async def process_command(sid, data):
                 repeat with w in windows
                     set tabIndex to 1
                     repeat with t in tabs of w
-                        if (URL of t contains "localhost:8000") or (URL of t contains "127.0.0.1:8000") then
+                        if (URL of t contains "localhost:8000") or (URL of t contains "127.0.0.1:8000") or (URL of t contains "jarvis.weblog") then
                             set active tab index of w to tabIndex
                             set index of w to 1
                             set foundTab to true
@@ -809,11 +918,10 @@ async def process_command(sid, data):
 
     # ── SHUTDOWN FAST-PATH ─────────────────────────────────────────────────
     if is_shutdown_command(raw_command):
-        shutdown_msg = "Understood, Sir. Initiating system shutdown. Goodbye."
+        shutdown_msg = "Shutdown capability is disabled for safety, Sir."
         await sio.emit('system_log', {'time': now, 'type': 'jarvis', 'message': shutdown_msg}, room=sid)
         await sio.emit('activity_state', {'state': 'SPEAKING'}, room=sid)
-        await asyncio.to_thread(speak_text, "Understood, Sir. Shutting down now. Goodbye.")
-        shutdown_system()
+        await asyncio.to_thread(speak_text, shutdown_msg)
         return
 
     # ── CLOSE ALL TABS FAST-PATH ────────────────────────────────────────────
