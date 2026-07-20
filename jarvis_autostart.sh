@@ -17,6 +17,15 @@ echo "============================================================"
 echo "  JARVIS AutoStart — $(date)"
 echo "============================================================"
 
+# ── Prevent concurrent runs ──────────────────────────────────────────────────
+# Check if another instance of this script is already running
+# We search for "jarvis_autostart.sh" and exclude the current process ID ($$)
+OTHER_PIDS=$(pgrep -f "jarvis_autostart.sh" | grep -v "^$$\$")
+if [ -n "$OTHER_PIDS" ]; then
+    echo "[*] Another instance of jarvis_autostart.sh is already running (PIDs: $OTHER_PIDS). Exiting."
+    exit 0
+fi
+
 # ── Wait for network (max 30s) ────────────────────────────────────────────────
 echo "[*] Waiting for network..."
 for i in {1..15}; do

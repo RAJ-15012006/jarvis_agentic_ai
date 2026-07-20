@@ -107,4 +107,19 @@
       document.body?.appendChild(badge);
     });
   }
+
+  // Keep background service worker alive
+  let port = null;
+  function connectPort() {
+    try {
+      port = chrome.runtime.connect({ name: "jarvis-keepalive" });
+      port.onDisconnect.addListener(() => {
+        setTimeout(connectPort, 1000);
+      });
+    } catch (e) {
+      // Chrome runtime might be unavailable/reloaded
+      setTimeout(connectPort, 5000);
+    }
+  }
+  connectPort();
 })();

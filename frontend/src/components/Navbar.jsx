@@ -1,7 +1,39 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export const Navbar = () => {
   const [activeModal, setActiveModal] = useState(null);
+  const [listenerActive, setListenerActive] = useState(false);
+  const [restartingListener, setRestartingListener] = useState(false);
+
+  const checkListenerStatus = async () => {
+    try {
+      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
+      const res = await fetch(`${baseUrl}/api/listener-status`);
+      const data = await res.json();
+      setListenerActive(data.active);
+    } catch (e) {
+      setListenerActive(false);
+    }
+  };
+
+  const restartListener = async () => {
+    setRestartingListener(true);
+    try {
+      const baseUrl = window.location.origin.includes('localhost') ? 'http://localhost:8000' : (window.location.origin.includes('jarvis.weblog') ? 'http://jarvis.weblog:8000' : window.location.origin);
+      await fetch(`${baseUrl}/api/listener-restart`, { method: 'POST' });
+      await checkListenerStatus();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRestartingListener(false);
+    }
+  };
+
+  useEffect(() => {
+    checkListenerStatus();
+    const interval = setInterval(checkListenerStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const resetVoice = () => {
     localStorage.removeItem('jarvis_voice');
@@ -43,6 +75,24 @@ export const Navbar = () => {
               <div className="flex justify-between items-center border-b border-jarvis-cyan/20 pb-4">
                 <span>UI Hologram Mode</span>
                 <span className="text-green-400">ACTIVE</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-jarvis-cyan/20 pb-4">
+                <span>
+                  Global Voice Listener<br />
+                  <span className="text-[10px] text-jarvis-cyan/50">(For listening in other tabs)</span>
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className={listenerActive ? "text-green-400 font-bold" : "text-amber-500 font-bold"}>
+                    {listenerActive ? "● ACTIVE" : "● INACTIVE"}
+                  </span>
+                  <button
+                    onClick={restartListener}
+                    disabled={restartingListener}
+                    className="px-3 py-1 border border-jarvis-cyan/40 hover:border-jarvis-cyan hover:bg-jarvis-cyan hover:text-black transition-all rounded text-xs"
+                  >
+                    {restartingListener ? "RESTARTING..." : "RESTART"}
+                  </button>
+                </div>
               </div>
               <div className="flex justify-between items-center pb-2">
                 <span>Socket Connection</span>

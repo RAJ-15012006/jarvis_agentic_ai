@@ -24,9 +24,18 @@ API_URL = "http://127.0.0.1:8000/api/voice-command"
 SAMPLE_RATE = 16000
 
 # Voice Activity Detection (VAD) parameters
-SILENCE_THRESHOLD = 800  # Amplitude threshold (lower = more sensitive)
+SILENCE_THRESHOLD = 300  # Amplitude threshold (lower = more sensitive)
 SILENCE_DURATION = 1.0   # Seconds of silence to trigger end of phrase
 MAX_PHRASE_DURATION = 8.0 # Max duration to prevent infinite recording
+
+def heartbeat_worker():
+    heartbeat_url = "http://127.0.0.1:8000/api/listener-heartbeat"
+    while True:
+        try:
+            requests.post(heartbeat_url, json={}, timeout=2)
+        except Exception:
+            pass
+        time.sleep(5)
 
 def run_listener():
     audio_queue = queue.Queue()
@@ -126,8 +135,9 @@ def run_listener():
                 print(f"[VOICE LISTENER] Transcribing loop error: {e}")
                 time.sleep(1)
 
-    # Start transcriber worker
+    # Start transcriber and heartbeat workers
     threading.Thread(target=transcriber_worker, daemon=True).start()
+    threading.Thread(target=heartbeat_worker, daemon=True).start()
 
     print("[VOICE LISTENER] Listening for speech dynamically using sounddevice InputStream...")
     try:

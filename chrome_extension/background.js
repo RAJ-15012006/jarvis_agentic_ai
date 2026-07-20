@@ -5,7 +5,7 @@
  * Routes tab-level commands from Jarvis to the correct Chrome tab.
  */
 
-const JARVIS_WS_URL  = "ws://127.0.0.1:8000/socket.io/?EIO=4&transport=websocket&token=jarvis-local-secret";
+const JARVIS_WS_URL  = "ws://127.0.0.1:8000/socket.io/?EIO=4&transport=websocket&token=jarvis-local-secret&client_type=extension";
 const JARVIS_SECRET  = "jarvis-local-secret";
 const RECONNECT_DELAY_MS = 3000;
 
@@ -135,12 +135,38 @@ async function handleJarvisEvent(event, data) {
     case "scroll_tab": {
       const direction = data?.direction || "down";
       const amount    = data?.amount    || 500;
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      
+      let tab = null;
+      try {
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tabs && tabs.length > 0) tab = tabs[0];
+      } catch (e) {}
+      if (!tab) {
+        try {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tabs && tabs.length > 0) tab = tabs[0];
+        } catch (e) {}
+      }
+      if (!tab) {
+        try {
+          const tabs = await chrome.tabs.query({ active: true });
+          if (tabs && tabs.length > 0) tab = tabs[0];
+        } catch (e) {}
+      }
+
       if (tab?.id) {
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (dir, amt) => { window.scrollBy(0, dir === "down" ? amt : -amt); },
-          args: [direction, amount],
+        chrome.tabs.sendMessage(tab.id, {
+          action: "jarvis_scroll",
+          direction: direction,
+          amount: amount
+        }, (response) => {
+          if (chrome.runtime.lastError || !response || !response.ok) {
+            chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              func: (dir, amt) => { window.scrollBy(0, dir === "down" ? amt : -amt); },
+              args: [direction, amount],
+            }).catch(err => console.error("[JARVIS] Scroll fallback script error:", err));
+          }
         });
       }
       break;
@@ -166,3 +192,13 @@ async function handleJarvisEvent(event, data) {
 chrome.runtime.onStartup.addListener(sioConnect);
 chrome.runtime.onInstalled.addListener(sioConnect);
 sioConnect();
+
+// Keep-alive port listener for content scripts
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "jarvis-keepalive") {
+    console.log("[JARVIS] Service Worker keep-alive port connected.");
+    port.onDisconnect.addListener(() => {
+      console.log("[JARVIS] Service Worker keep-alive port disconnected.");
+    });
+  }
+});

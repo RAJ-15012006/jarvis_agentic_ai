@@ -314,6 +314,36 @@ async def speaking_status():
     from voice import is_speaking
     return {"speaking": is_speaking()}
 
+# Heartbeat state for global microphone listener
+last_listener_heartbeat = 0.0
+
+@app.post("/api/listener-heartbeat")
+async def listener_heartbeat():
+    global last_listener_heartbeat
+    last_listener_heartbeat = time.time()
+    return {"status": "ok"}
+
+@app.get("/api/listener-status")
+async def listener_status():
+    global last_listener_heartbeat
+    is_active = (time.time() - last_listener_heartbeat) < 15.0
+    return {"active": is_active, "last_seen": last_listener_heartbeat}
+
+@app.post("/api/listener-restart")
+async def listener_restart():
+    try:
+        import subprocess
+        import sys
+        # Kill existing listener
+        subprocess.run(["pkill", "-f", "global_voice_listener.py"], capture_output=True)
+        time.sleep(0.5)
+        # Spawn a new listener
+        listener_script = os.path.join(os.path.dirname(__file__), "global_voice_listener.py")
+        subprocess.Popen([sys.executable, listener_script], close_fds=True)
+        return {"success": True, "message": "Global listener restarted successfully"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @app.get("/api/recommendation")
 async def get_recommendation():
     """Returns a machine-learning powered prediction of user needs."""
@@ -571,7 +601,7 @@ async def analyze_gender(file: UploadFile = File(...)):
         client = Groq(api_key=groq_key)
 
         response = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model="qwen/qwen3.6-27b",
             messages=[
                 {
                     "role": "system",

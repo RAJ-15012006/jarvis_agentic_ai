@@ -108,7 +108,7 @@ def analyze_screen(command: str = "What is on my screen?") -> str:
         client = Groq(api_key=api_key)
 
         response = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model="qwen/qwen3.6-27b",
             messages=[
                 {
                     "role": "system",
@@ -207,7 +207,7 @@ def click_screen_element(target: str) -> str:
 
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model="qwen/qwen3.6-27b",
             messages=[
                 {
                     "role": "system",
