@@ -1,0 +1,53 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build Frontend
+      working-directory: ./frontend
+      run: |
+        npm install
+        npm run build
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build Executable
+      working-directory: ./backend
+      # Note: Windows uses ';' as the path separator in --add-data
+      run: |
+        pyinstaller --name "JARVIS" --noconfirm --onedir --windowed --add-data "../frontend/dist;frontend/dist" main.py
+        
+    - name: Zip the output
+      working-directory: ./backend/dist
+      run: |
+        Compress-Archive -Path JARVIS -DestinationPath JARVIS_Windows.zip
+
+    - name: Upload Release Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: JARVIS_Windows
+        path: backend/dist/JARVIS_Windows.zip

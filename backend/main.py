@@ -100,9 +100,16 @@ async def execute_global_command(command: str):
     if not system_unlocked:
         print("[SECURITY] Voice command ignored because system is locked.")
         return
-    if _command_executing:
+    
+    is_stop_cmd = command.lower().strip() in ["stop", "stop speaking", "be quiet", "shut up", "mute"]
+    if _command_executing and not is_stop_cmd:
         print("[GLOBAL CMD] Skipped — another command is already executing.")
         return
+        
+    if is_stop_cmd:
+        await _execute_global_command_inner(command)
+        return
+
     _command_executing = True
     try:
         await _execute_global_command_inner(command)
@@ -258,17 +265,19 @@ async def voice_command_endpoint(request: Request):
     if not system_unlocked:
         return {"success": False, "error": "System is locked. Authentication required."}
         
-    # Ignore commands from the background mic if Jarvis is currently speaking (feedback prevention)
-    from voice import is_speaking
-    if is_speaking():
-        print("[VOICE COMMAND] Ignored voice command since Jarvis is speaking.")
-        return {"success": False, "error": "Jarvis is speaking"}
-
     try:
         data = await request.json()
         command = data.get("command", "").strip()
         if not command:
             return {"success": False, "error": "Empty command"}
+            
+        # Ignore commands from the background mic if Jarvis is currently speaking (feedback prevention)
+        # UNLESS it is a stop command!
+        is_stop_cmd = command.lower().strip() in ["stop", "stop speaking", "be quiet", "shut up", "mute"]
+        from voice import is_speaking
+        if is_speaking() and not is_stop_cmd:
+            print("[VOICE COMMAND] Ignored voice command since Jarvis is speaking.")
+            return {"success": False, "error": "Jarvis is speaking"}
             
         if main_loop:
             asyncio.run_coroutine_threadsafe(
@@ -663,7 +672,12 @@ async def analyze_gender(file: UploadFile = File(...)):
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
-FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if getattr(sys, 'frozen', False):
+    # Running in a PyInstaller bundle
+    FRONTEND_DIST = os.path.join(sys._MEIPASS, "frontend", "dist")
+else:
+    # Running in normal Python dev mode
+    FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 assets_dir = os.path.join(FRONTEND_DIST, "assets")
 os.makedirs(assets_dir, exist_ok=True)
 app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
@@ -837,11 +851,16 @@ async def connect(sid, environ, auth=None):
     print(f"Frontend connected: {sid} (Client type: {client_type})")
     
     if client_type == "frontend":
-        system_unlocked = True
         frontend_sid = sid
-        print(f"[SECURITY] Frontend connected: {sid}. System unlocked.")
+        print(f"[SECURITY] Frontend connected: {sid}. Waiting for biometric unlock.")
+
+@sio.event
+async def unlock_system(sid, data=None):
+    global system_unlocked, frontend_sid, auth_just_completed
+    if sid == frontend_sid:
+        system_unlocked = True
+        print(f"[SECURITY] Biometric verification succeeded. System unlocked.")
         
-        global auth_just_completed
         if auth_just_completed:
             auth_just_completed = False
             # Run welcome greeting as a background task to prevent blocking connection handshake
@@ -871,9 +890,18 @@ async def process_command(sid, data):
     if not system_unlocked:
         print(f"[SECURITY] Blocked process_command from {sid} since system is locked.")
         return
-    if _command_executing:
+        
+    raw_command = data.get('command', '') if isinstance(data, dict) else ''
+    is_stop_cmd = raw_command.lower().strip() in ["stop", "stop speaking", "be quiet", "shut up", "mute"]
+    
+    if _command_executing and not is_stop_cmd:
         print(f"[PROCESS CMD] Skipped — another command is already executing.")
         return
+        
+    if is_stop_cmd:
+        await _process_command_inner(sid, data)
+        return
+
     _command_executing = True
     try:
         await _process_command_inner(sid, data)
