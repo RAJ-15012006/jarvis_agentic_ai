@@ -1,64 +1,321 @@
-"""
-Top-level requirements for the JARVIS project.
-This file mirrors `backend/requirements.txt`. For Python installs, prefer
-installing from `backend/requirements.txt` to keep backend dependencies
-scoped. This top-level file exists for convenience.
-"""
 
-# See backend/requirements.txt for curated dependency ranges
+JARVIS — Detailed Technical Handbook (DTH)
 
-# Core web framework and ASGI server
-fastapi>=0.80,<1.0
-uvicorn[standard]>=0.18,<1.0
+1) Project overview and goals
 
-# Real-time / sockets
-python-socketio>=5.7,<6.0
-python-engineio>=4.3,<5.0
+Purpose:
+JARVIS is an intelligent agent assistant that provides a local-first
+desktop experience with a React-based HUD frontend and a Python FastAPI
+backend. It supports real-time bi-directional audio streams, modular
+"agents" for specialized skills, and secure biometric (face/voice)
+authentication with encrypted local storage.
 
-# Request validation / models
-pydantic>=1.10,<2.0
+Primary goals:
+- Real-time voice interaction and low-latency feedback.
+- Modular agent core for extensible skills/plugins.
+- Secure, privacy-first biometric enrollment and verification.
+- Visual HUD with optional 3D components and accessibility features.
+- Cross-platform autostart and hardware access.
 
-# HTTP clients
-httpx>=0.23,<1.0
-requests>=2.28,<3.0
+Success criteria:
+- Voice-request to audio-response pipeline under 400ms (local TTS +
+	external LLM latency excluded).
+- Biometric enrollment/verification reliability >= 90% in controlled
+	conditions.
+- CI passing tests and documented deployment artifacts.
 
-# Multipart form support (file uploads)
-python-multipart>=0.0.6,<1.0
+2) How the project is built
 
-# Data / ML / audio / images
-numpy>=1.23,<2.0
-scipy>=1.9,<2.0
-opencv-python>=4.7,<5.0
-opencv-contrib-python>=4.7,<5.0
-pillow>=9.0,<10.0
+- Frontend
+	- Architecture: Single-page React app (Vite) located in `frontend/`.
+		Components under `frontend/src/components`, assets in `frontend/public`.
+	- Libraries/UI framework: React, Tailwind CSS, react-three-fiber
+		(Three.js), socket.io-client, optional Web Speech API.
+	- State management: Context API + custom hooks for global state
+		(voice state, auth state). Socket events drive ephemeral updates.
+	- Build: `npm run dev` for development; `npm run build` outputs static
+		artifacts to `dist` served via static server or CDN.
 
-# Cryptography and secrets
-cryptography>=38.0,<45.0
-python-dotenv>=0.21,<1.0
+- Backend
+	- Architecture: FastAPI ASGI app in `backend/` with REST endpoints
+		and Socket.IO for realtime audio/events. `brain.py` is the agent
+		orchestrator which routes intents to agent modules under
+		`backend/agents/`.
+	- Frameworks: FastAPI, python-socketio, uvicorn/gunicorn (prod),
+		pydantic for validation.
+	- Datastore: Local encrypted files for small-state (face_data/),
+		optional SQLite or Postgres for structured logs/events.
+	- APIs: REST for configuration, enroll/verify; Socket.IO for
+		streaming audio and event messages.
 
-# Speech / TTS / STT
-SpeechRecognition>=3.8,<4.0
-pyttsx3>=2.90,<3.0
-edge-tts>=0.2,<1.0
+- UI components integration
+	- Widgets (ActivityMonitor, BiometricsDashboard, EmotionWidget,
+		SpotifyWidget) subscribe to Socket channels and call REST
+		endpoints for actions.
+	- 3D components (IronMan3D, NeuralCore3D) use react-three-fiber and
+		respond to audio amplitude and agent events.
 
-# Automation & desktop integration
-pyautogui>=0.9.53,<1.0
+3) Library and tool inventory
 
-# Agents, integrations and helpers
-openai>=0.27,<1.0
-langchain>=0.0.200,<1.0
-beautifulsoup4>=4.11,<5.0
-spotipy>=2.23,<3.0
+Below are the main libraries used, purpose, recommended version ranges,
+and usage notes. Pin exact versions before production.
 
-# File / PDF handling
-pypdf>=3.0,<4.0
+- fastapi (>=0.80,<1.0): Web framework for REST and ASGI apps.
+- uvicorn[standard] (>=0.18,<1.0): ASGI server for development/production.
+- python-socketio (>=5.7,<6.0): Socket.IO server for realtime audio/events.
+- python-engineio (>=4.3,<5.0): EngineIO transport used by socketio.
+- pydantic (>=1.10,<2.0): Data validation for request/response models.
+- httpx (>=0.23,<1.0): Async HTTP client for external API calls.
+- numpy (>=1.23,<2.0): Numerical arrays; used for voice profiles.
+- opencv-python (>=4.7,<5.0): Image processing for face detection.
+- pillow (>=9.0,<10.0): Image handling (screenshots, conversions).
+- cryptography (>=38.0,<45.0): Encrypt biometric files at rest.
+- python-dotenv (>=0.21,<1.0): Load environment variables for local dev.
+- SpeechRecognition (>=3.8,<4.0): STT client when using local engines.
+- pyttsx3 (>=2.90,<3.0): Local TTS fallback.
+- edge-tts (>=0.2,<1.0): Microsoft Edge TTS bindings (optional).
+- pyautogui (>=0.9.53,<1.0): Desktop automation for agents.
+- openai (>=0.27,<1.0): LLM provider integration (optional; replaceable).
+- langchain (>=0.0.200,<1.0): LLM orchestration helpers (optional).
+- spotipy (>=2.23,<3.0): Spotify integration.
+- beautifulsoup4 (>=4.11,<5.0): HTML parsing for web agents.
+- pypdf (>=3.0,<4.0): PDF parsing and extraction.
+- pytest (>=7.0,<8.0), pytest-asyncio (>=0.20,<1.0): Testing frameworks.
 
-# Utilities
-pytest>=7.0,<8.0
-pytest-asyncio>=0.20,<1.0
+Platform-specific optional packages (install only on Windows):
+- pywin32, pycaw, comtypes, pygetwindow
 
-# Platform-specific extras
-pywin32; sys_platform == 'win32'
-pycaw; sys_platform == 'win32'
-comtypes; sys_platform == 'win32'
-pygetwindow; sys_platform == 'win32'
+Note: heavy ML packages (deepface, fer) are optional and should be
+installed separately when GPU/CPU requirements are met.
+
+4) File-by-file integration map (summary)
+
+Root
+- `README.md`: project overview and quickstart.
+- `SETUP.md`: setup steps and autostart instructions.
+- `install_autostart.sh`, `uninstall_autostart.sh`, `jarvis_autostart.sh`:
+	scripts to register the app as a system service.
+
+Backend/
+- `backend/main.py`: ASGI app factory; mounts routes and socket handlers.
+- `backend/brain.py`: Agent core and router; load/register agents; manage
+	session context and memory.
+- `backend/global_voice_listener.py`: Wake-word and continuous audio
+	capture pipeline.
+- `backend/voice.py`: TTS/STT wrapper functions; audio encoding helpers.
+- `backend/face_auth.py`: Face enrollment/verification logic.
+- `backend/register_face.py`: CLI helper for bulk enrollment.
+- `backend/agents/*`: Agent modules (chat_agent.py, automation_agent.py,
+	spotify_agent.py, gmail_agent.py, etc.). Each exports `handle(payload, context)`.
+- `backend/face_data/`: Encrypted storage for `voice_profile.npy`,
+	`current_emotion.json`, `intruder_log/`.
+
+Frontend/
+- `frontend/index.html`: SPA shell.
+- `frontend/src/main.jsx`: React entrypoint; creates `SocketProvider` and
+	`AppContext`.
+- `frontend/src/App.jsx`: Root layout, loads widgets and 3D scene.
+- `frontend/src/components/*`: UI widgets (ActivityMonitor,
+	BiometricsDashboard, IronMan3D, etc.).
+- `chrome_extension/`: Optional extension to send web content to JARVIS.
+
+Tools/
+- `tools/test_socket_client.py`: Dev utility to simulate socket clients
+	and test audio/event flows.
+
+Dependency graph (simplified):
+Frontend components -> Socket.IO client -> Backend Socket.IO handlers
+-> `brain.py` -> agents -> external APIs or local drivers
+Frontend REST calls -> FastAPI endpoints -> specific handlers
+
+5) API usage
+
+Internal REST API (examples)
+- POST `/api/auth/login`
+	- Request: {"username","password"}
+	- Response: {"access_token":"jwt","expires_in":3600}
+
+- POST `/api/auth/voice/enroll`
+	- Request: {"user_id","audio_base64","sample_rate"}
+	- Response: {"status":"queued","profile_id":"uuid"}
+	- Rate limit: 10/min per user
+
+- POST `/api/auth/voice/verify`
+	- Request: {"user_id","audio_base64"}
+	- Response: {"matched":true|false,"score":float}
+
+- POST `/api/face/enroll` (multipart)
+- POST `/api/face/verify` (multipart)
+- GET `/api/agents/list`
+- POST `/api/agents/execute` (sync/async)
+
+Socket.IO channels/events
+- connect (auth token required)
+- client -> server: `audio:chunk`, `audio:done`, `control:execute`
+- server -> client: `stt:partial`, `stt:final`, `tts:chunk`, `event:notification`
+
+External API integrations (examples)
+- OpenAI / LLM provider: chat completions (Bearer API key)
+- Gmail API: OAuth2 (user consent, limited scopes)
+- Spotify API: OAuth2 (playback control)
+- TTS providers (Edge/Google/Microsoft): API key; cache generated audio
+	by `voice+text` hash.
+
+Data formats
+- Audio: PCM16LE or Opus; sample rate 16kHz recommended.
+- Face images: JPEG/PNG, normalized to 224x224 for models.
+- Logs: JSON with `{timestamp, component, level, message, metadata}`.
+
+6) Architecture blueprint (textual)
+
+Layers:
+- Presentation Layer: React SPA + 3D components
+- Real-Time Layer: Socket.IO for audio and event streams
+- Application Layer: FastAPI + `brain.py` orchestrator
+- Integration Layer: External APIs and local hardware drivers
+- Data Layer: Encrypted local storage and optional RDBMS for logs
+
+Typical voice command flow:
+Client records audio -> streams chunks via Socket.IO -> backend
+transcribes (local/external) -> `brain` routes to agent -> agent
+executes action or queries LLM -> TTS audio generated -> streamed back
+to client -> client plays audio and updates HUD.
+
+7) Deployment and hosting
+
+Environments:
+- dev: local with `uvicorn --reload` and Vite dev server
+- stage: containerized images deployed to staging cluster
+- prod: containerized, autoscaled, managed DB, CDN
+
+CI/CD (recommended using GitHub Actions):
+1. On PR: run linters (eslint/flake8), unit tests (pytest), build frontend
+2. Build Docker images, run integration tests
+3. Push images to registry (GHCR/ECR)
+4. Deploy to staging, run smoke tests
+5. Manual approval, promote to production
+
+Process management for local host:
+- macOS: `com.raj.jarvis.plist` + `install_autostart.sh` register launchd job
+- Linux: systemd unit
+- Windows: optional service wrapper or scheduled task
+
+Secrets:
+- Use GitHub Secrets / AWS Secrets Manager. Do not commit keys.
+
+8) Performance expectations
+
+Client load times:
+- First load (cold): 600–1200ms on modern laptop (depends on bundle size)
+- Subsequent loads: 100–300ms with caching
+
+Realtime:
+- Socket RTT local: <10ms
+- STT local: 20–100ms per chunk
+- LLM external: 200–1000ms (provider dependent)
+- TTS: 50–400ms
+
+Caching:
+- Serve frontend via CDN with hashed assets
+- Cache TTS audio by `voice+text` hash
+- Cache LLM responses for repeatable prompts with TTL
+
+Scaling:
+- Horizontal scaling for Socket.IO requires sticky sessions or
+	Redis pub/sub (recommended)
+
+9) UI/UX details
+
+Libraries:
+- Tailwind CSS, React, react-three-fiber (Drei), socket.io-client
+
+3D components:
+- IronMan3D, NeuralCore3D respond to audio amplitude and agent state
+- Provide WebGL fallbacks to 2D if device doesn't support WebGL
+
+Accessibility:
+- Keyboard navigation, ARIA labels, high-contrast themes, captions for
+	audio outputs where possible
+
+10) Security and compliance
+
+Authentication:
+- JWT for local sessions; OAuth2/OIDC for cloud-enabled integrations
+
+Authorization:
+- Role-based access (admin/user) for sensitive endpoints
+
+Data protection:
+- Encrypt biometric files at rest using `cryptography`
+- Transport: TLS required for remote deployments
+
+Logging & audit:
+- Structured JSON logs; redact PII; retain logs per policy (e.g., 90 days)
+
+Compliance:
+- Opt-in consent for biometric capture; support data export/deletion
+	per GDPR-like requirements
+
+11) Testing strategy
+
+Unit tests:
+- Backend: pytest for `brain`, agents, and auth modules (target 80% coverage)
+- Frontend: Jest + React Testing Library for components and hooks
+
+Integration tests:
+- End-to-end flows for enroll->verify and agent executions using
+	fixtures/mocked external APIs
+
+E2E:
+- Playwright for HUD flows and Socket.IO smoke tests
+
+Security tests:
+- Static analysis (bandit), dependency scans (Dependabot/Snyk)
+
+12) Deliverables and milestones
+
+Milestone 0 — Project setup (1 week)
+- Repo structure, `requirements.txt`, dev scripts, README
+
+Milestone 1 — Core backend & agent router (2 weeks)
+- FastAPI skeleton, Socket.IO, `brain.py`, sample `chat_agent`
+
+Milestone 2 — Frontend HUD MVP (2 weeks)
+- React SPA with ActivityMonitor, BiometricsDashboard, basic 3D fallback
+
+Milestone 3 — Biometric enrollment & verification (2 weeks)
+- Face & voice enroll/verify APIs and frontend flows, encrypted storage
+
+Milestone 4 — Agent ecosystem & integrations (3-4 weeks)
+- Spotify, Gmail, Calendar agents; LLM integration and caching
+
+Milestone 5 — Polishing & deployment (3 weeks)
+- CI/CD, Docker images, staging deploy, performance tuning, docs
+
+Appendix: quick local setup
+
+1. Create venv and install:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+```
+2. Start backend (dev):
+```bash
+uvicorn backend.main:app --reload
+```
+3. Start frontend dev server:
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Notes
+- This `requirements.txt` intentionally contains the full DTH text so
+	that opening the file in the repository provides the complete
+	project specification. For actual package installation use
+	`backend/requirements.txt` which contains dependency ranges.
+
+If you'd like this copied to a separate `DTH.txt` or committed and
+pushed, tell me which branch to use and I will prepare the commit.
