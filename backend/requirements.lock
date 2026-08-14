@@ -1,0 +1,23 @@
+# requirements.lock — placeholder
+# This file is a placeholder to record exact installed package versions.
+# To generate a real `requirements.lock` for your environment, run locally
+# after creating and activating your virtualenv:
+#
+# python -m venv .venv
+# source .venv/bin/activate
+# pip install -r backend/requirements.txt
+# pip freeze > backend/requirements.lock
+#
+# After running the above, replace the contents of this file with the
+# output of `pip freeze` so it contains exact pinned versions.
+
+# Example (not real pins — replace by running the commands above):
+# fastapi==0.95.2
+# uvicorn==0.22.0
+# python-socketio==5.9.0
+# httpx==0.23.3
+# pydantic==1.10.9
+# numpy==1.25.0
+
+# NOTE: Do NOT use this placeholder in production; always generate a lock
+# file from the actual environment to ensure deterministic installs.

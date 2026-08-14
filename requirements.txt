@@ -1,0 +1,64 @@
+"""
+Top-level requirements for the JARVIS project.
+This file mirrors `backend/requirements.txt`. For Python installs, prefer
+installing from `backend/requirements.txt` to keep backend dependencies
+scoped. This top-level file exists for convenience.
+"""
+
+# See backend/requirements.txt for curated dependency ranges
+
+# Core web framework and ASGI server
+fastapi>=0.80,<1.0
+uvicorn[standard]>=0.18,<1.0
+
+# Real-time / sockets
+python-socketio>=5.7,<6.0
+python-engineio>=4.3,<5.0
+
+# Request validation / models
+pydantic>=1.10,<2.0
+
+# HTTP clients
+httpx>=0.23,<1.0
+requests>=2.28,<3.0
+
+# Multipart form support (file uploads)
+python-multipart>=0.0.6,<1.0
+
+# Data / ML / audio / images
+numpy>=1.23,<2.0
+scipy>=1.9,<2.0
+opencv-python>=4.7,<5.0
+opencv-contrib-python>=4.7,<5.0
+pillow>=9.0,<10.0
+
+# Cryptography and secrets
+cryptography>=38.0,<45.0
+python-dotenv>=0.21,<1.0
+
+# Speech / TTS / STT
+SpeechRecognition>=3.8,<4.0
+pyttsx3>=2.90,<3.0
+edge-tts>=0.2,<1.0
+
+# Automation & desktop integration
+pyautogui>=0.9.53,<1.0
+
+# Agents, integrations and helpers
+openai>=0.27,<1.0
+langchain>=0.0.200,<1.0
+beautifulsoup4>=4.11,<5.0
+spotipy>=2.23,<3.0
+
+# File / PDF handling
+pypdf>=3.0,<4.0
+
+# Utilities
+pytest>=7.0,<8.0
+pytest-asyncio>=0.20,<1.0
+
+# Platform-specific extras
+pywin32; sys_platform == 'win32'
+pycaw; sys_platform == 'win32'
+comtypes; sys_platform == 'win32'
+pygetwindow; sys_platform == 'win32'
